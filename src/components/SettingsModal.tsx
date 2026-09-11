@@ -24,6 +24,7 @@ import {
   LogOut,
   Calendar,
   Mail,
+  Phone,
   ShieldCheck,
 } from 'lucide-react';
 
@@ -39,6 +40,7 @@ interface SettingsModalProps {
   ownerProfile?: OwnerProfile | null;
   userProfile?: UserProfile | null;
   authEmail?: string;
+  authPhone?: string;
   onLogout?: () => void;
   onUpdateOwnerProfile?: (updater: Partial<OwnerProfile>) => void;
   onAddMemory?: (fact: string) => void;
@@ -59,6 +61,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   ownerProfile,
   userProfile,
   authEmail,
+  authPhone,
   onLogout,
   onUpdateOwnerProfile,
   onAddMemory,
@@ -280,15 +283,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   </div>
                 </div>
 
-                {authEmail && (
-                  <div className="p-2 rounded-xl bg-black/20 border border-white/5 col-span-2 flex items-center justify-between text-[11px] text-slate-400">
-                    <span className="flex items-center gap-1">
-                      <Mail className="w-3 h-3 text-rose-400" />
-                      <span>{authEmail}</span>
+                {(authPhone || userProfile?.phone_number || authEmail) && (
+                  <div className="p-2.5 rounded-xl bg-black/20 border border-white/5 col-span-2 flex items-center justify-between text-[11px] text-slate-400">
+                    <span className="flex items-center gap-1.5 font-medium">
+                      <Phone className="w-3.5 h-3.5 text-rose-400" />
+                      <span>{authPhone || userProfile?.phone_number || authEmail}</span>
                     </span>
-                    <span className="flex items-center gap-1 text-emerald-400 text-[10px] font-medium">
+                    <span className="flex items-center gap-1 text-emerald-400 text-[10px] font-semibold bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
                       <ShieldCheck className="w-3 h-3" />
-                      <span>Private RLS Encrypted</span>
+                      <span>Verified Phone</span>
                     </span>
                   </div>
                 )}

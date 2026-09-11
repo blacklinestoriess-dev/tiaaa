@@ -76,6 +76,7 @@ export interface UserProfile {
   id: string;
   user_id: string;
   full_name: string;
+  phone_number: string;
   date_of_birth: string; // YYYY-MM-DD
   address: string;
   age: number; // Dynamically calculated from date_of_birth
@@ -100,7 +101,9 @@ export interface UserMemory {
 // Authenticated User Identity
 export interface AuthUser {
   id: string;
-  email: string;
+  phone_number: string;
+  email?: string;
+  supabase_id?: string;
 }
 
 // Active Authentication Session

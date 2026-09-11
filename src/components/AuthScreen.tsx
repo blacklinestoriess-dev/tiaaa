@@ -1,28 +1,28 @@
-import React, { useState, useId } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   Sparkles,
-  Mail,
-  Lock,
+  Phone,
   User,
   Calendar,
   MapPin,
   Briefcase,
-  Eye,
-  EyeOff,
   ArrowRight,
+  ArrowLeft,
   ShieldCheck,
   AlertCircle,
   KeyRound,
   CheckCircle2,
+  RefreshCw,
 } from 'lucide-react';
 import type { AuthSession } from '../types';
+import { validateIndianPhone } from '../utils/phone';
 
 interface AuthScreenProps {
   isDark: boolean;
   onAuthSuccess: (session: AuthSession) => void;
 }
 
-// Age calculation helper
+// Age calculation helper based on Date of Birth
 function calculateAgeFromDob(dob: string): number | null {
   if (!dob) return null;
   const birthDate = new Date(dob);
@@ -37,278 +37,356 @@ function calculateAgeFromDob(dob: string): number | null {
 }
 
 export const AuthScreen: React.FC<AuthScreenProps> = ({ isDark, onAuthSuccess }) => {
-  const [mode, setMode] = useState<'login' | 'signup' | 'forgot'>('login');
-  const [showPassword, setShowPassword] = useState(false);
+  // Mode: 'login' | 'signup'
+  const [mode, setMode] = useState<'login' | 'signup'>('signup');
+  // Step: 'form' | 'otp'
+  const [authStep, setAuthStep] = useState<'form' | 'otp'>('form');
+
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
-  // Form State
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  // Form Fields
   const [fullName, setFullName] = useState('');
+  const [phone, setPhone] = useState('');
   const [dob, setDob] = useState('');
   const [address, setAddress] = useState('');
   const [occupation, setOccupation] = useState('');
-  const [gender, setGender] = useState('unspecified');
 
-  // Forgot password two-step state
-  const [forgotStep, setForgotStep] = useState<1 | 2>(1);
-  const [resetCode, setResetCode] = useState('');
-  const [newPassword, setNewPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
-  const [showNewPassword, setShowNewPassword] = useState(false);
+  // Normalized phone info for OTP verification step
+  const [normalizedPhone, setNormalizedPhone] = useState('');
+  const [displayPhone, setDisplayPhone] = useState('');
 
+  // 6-digit OTP state (array of 6 strings)
+  const [otpDigits, setOtpDigits] = useState<string[]>(['', '', '', '', '', '']);
+  const otpInputRefs = useRef<(HTMLInputElement | null)[]>([]);
+
+  // Cooldown countdown timer for Resend OTP
+  const [resendCooldown, setResendCooldown] = useState<number>(0);
+  const cooldownTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Dynamic calculated age
   const calculatedAge = calculateAgeFromDob(dob);
 
-  const handleLogin = async (e: React.FormEvent) => {
+  // Handle countdown timer
+  useEffect(() => {
+    if (resendCooldown > 0) {
+      cooldownTimerRef.current = setInterval(() => {
+        setResendCooldown((prev) => {
+          if (prev <= 1) {
+            if (cooldownTimerRef.current) clearInterval(cooldownTimerRef.current);
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    }
+    return () => {
+      if (cooldownTimerRef.current) {
+        clearInterval(cooldownTimerRef.current);
+      }
+    };
+  }, [resendCooldown]);
+
+  // Auto-focus first OTP box when entering OTP step
+  useEffect(() => {
+    if (authStep === 'otp') {
+      const timer = setTimeout(() => {
+        otpInputRefs.current[0]?.focus();
+      }, 150);
+      return () => clearTimeout(timer);
+    }
+  }, [authStep]);
+
+  // Request OTP (from Signup or Login form)
+  const handleRequestOtp = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
     setSuccessMessage(null);
 
-    if (!email.trim() || !password) {
-      setErrorMessage('Please enter both email address and password.');
+    // 1. Phone validation
+    const phoneVal = validateIndianPhone(phone);
+    if (!phoneVal.valid || !phoneVal.normalized) {
+      setErrorMessage(phoneVal.error || 'Please enter a valid 10-digit Indian mobile number.');
       return;
     }
 
-    setLoading(true);
-    try {
-      const res = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: email.trim(), password }),
-      });
-
-      const data = await res.json();
-      if (!res.ok || !data.success) {
-        throw new Error(data.error || 'Failed to log in. Please verify your credentials.');
+    // 2. Signup validations
+    if (mode === 'signup') {
+      if (!fullName.trim() || fullName.trim().length < 2) {
+        setErrorMessage('Please enter your Full Name (at least 2 characters).');
+        return;
       }
 
-      onAuthSuccess({
-        token: data.token,
-        user: data.user,
-        profile: data.profile,
-        isNewUser: false,
-      });
-    } catch (err: any) {
-      setErrorMessage(err.message || 'An error occurred during login.');
-    } finally {
-      setLoading(false);
-    }
-  };
+      if (!dob) {
+        setErrorMessage('Please enter your Date of Birth.');
+        return;
+      }
 
-  const handleSignup = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setErrorMessage(null);
-    setSuccessMessage(null);
-
-    if (!fullName.trim() || fullName.trim().length < 2) {
-      setErrorMessage('Please enter your full name (at least 2 characters).');
-      return;
-    }
-    if (!email.trim() || !email.includes('@') || !email.includes('.')) {
-      setErrorMessage('Please enter a valid email address.');
-      return;
-    }
-    if (!password || password.length < 6) {
-      setErrorMessage('Password must be at least 6 characters.');
-      return;
-    }
-    if (!dob) {
-      setErrorMessage('Please enter your Date of Birth.');
-      return;
-    }
-
-    // Check that birth date is not in future
-    const birthDate = new Date(dob);
-    if (isNaN(birthDate.getTime()) || birthDate > new Date()) {
-      setErrorMessage('Please enter a valid past Date of Birth.');
-      return;
+      const birthDate = new Date(dob);
+      if (isNaN(birthDate.getTime()) || birthDate > new Date()) {
+        setErrorMessage('Please enter a valid past Date of Birth.');
+        return;
+      }
     }
 
     setLoading(true);
+
     try {
-      const res = await fetch('/api/auth/signup', {
+      const res = await fetch('/api/auth/otp/send', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          phone: phoneVal.normalized,
+          mode,
           full_name: fullName.trim(),
-          email: email.trim(),
-          password,
           date_of_birth: dob,
-          address: address.trim() || '',
-          occupation_status: occupation.trim() || 'Explorer',
-          gender,
+          address: address.trim(),
+          occupation_status: occupation.trim(),
         }),
       });
 
       const data = await res.json();
       if (!res.ok || !data.success) {
-        throw new Error(data.error || 'Failed to create account.');
+        throw new Error(data.error || 'Failed to send OTP. Please try again.');
+      }
+
+      setNormalizedPhone(phoneVal.normalized);
+      setDisplayPhone(phoneVal.display || phoneVal.normalized);
+      setOtpDigits(['', '', '', '', '', '']);
+      setAuthStep('otp');
+      setResendCooldown(30); // 30-second cooldown
+      setSuccessMessage(data.message || `Verification code sent to ${phoneVal.display}!`);
+    } catch (err: any) {
+      setErrorMessage(err.message || 'An error occurred while sending OTP.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Resend OTP
+  const handleResendOtp = async () => {
+    if (resendCooldown > 0 || loading) return;
+    setErrorMessage(null);
+    setSuccessMessage(null);
+    setLoading(true);
+
+    try {
+      const res = await fetch('/api/auth/otp/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          phone: normalizedPhone,
+          mode,
+          full_name: fullName.trim(),
+          date_of_birth: dob,
+          address: address.trim(),
+          occupation_status: occupation.trim(),
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Failed to resend verification code.');
+      }
+
+      setOtpDigits(['', '', '', '', '', '']);
+      setResendCooldown(30);
+      setSuccessMessage(`A new verification code has been sent to ${displayPhone}.`);
+      otpInputRefs.current[0]?.focus();
+    } catch (err: any) {
+      setErrorMessage(err.message || 'Failed to resend OTP.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Handle individual digit input in OTP 6-box input
+  const handleOtpDigitChange = (index: number, val: string) => {
+    // Only allow digits
+    const cleaned = val.replace(/\D/g, '');
+
+    // Handle paste event where user pastes whole 6-digit code into one box
+    if (cleaned.length > 1) {
+      const chars = cleaned.slice(0, 6).split('');
+      const newDigits = [...otpDigits];
+      chars.forEach((ch, idx) => {
+        if (index + idx < 6) {
+          newDigits[index + idx] = ch;
+        }
+      });
+      setOtpDigits(newDigits);
+      const nextIdx = Math.min(index + chars.length, 5);
+      otpInputRefs.current[nextIdx]?.focus();
+      return;
+    }
+
+    const singleDigit = cleaned.slice(-1);
+    const newDigits = [...otpDigits];
+    newDigits[index] = singleDigit;
+    setOtpDigits(newDigits);
+
+    // Auto-advance to next box if digit was typed
+    if (singleDigit && index < 5) {
+      otpInputRefs.current[index + 1]?.focus();
+    }
+  };
+
+  // Handle backspace navigation in OTP boxes
+  const handleOtpKeyDown = (index: number, e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Backspace') {
+      if (!otpDigits[index] && index > 0) {
+        // Move back to previous box and clear it
+        otpInputRefs.current[index - 1]?.focus();
+        const newDigits = [...otpDigits];
+        newDigits[index - 1] = '';
+        setOtpDigits(newDigits);
+      }
+    } else if (e.key === 'ArrowLeft' && index > 0) {
+      otpInputRefs.current[index - 1]?.focus();
+    } else if (e.key === 'ArrowRight' && index < 5) {
+      otpInputRefs.current[index + 1]?.focus();
+    }
+  };
+
+  // Handle OTP Verification Submit
+  const handleVerifyOtp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrorMessage(null);
+    setSuccessMessage(null);
+
+    const fullOtp = otpDigits.join('').trim();
+    if (fullOtp.length !== 6) {
+      setErrorMessage('Please enter all 6 digits of your verification code.');
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      const res = await fetch('/api/auth/otp/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          phone: normalizedPhone,
+          otp: fullOtp,
+          mode,
+          full_name: fullName.trim(),
+          date_of_birth: dob,
+          address: address.trim(),
+          occupation_status: occupation.trim(),
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(
+          data.error || 'Incorrect or expired verification code. Please try again.'
+        );
+      }
+
+      // Store in localStorage for session persistence across refreshes
+      try {
+        localStorage.setItem('tia_auth_token', data.token);
+        localStorage.setItem(
+          'tia_auth_session',
+          JSON.stringify({
+            token: data.token,
+            user: data.user,
+            profile: data.profile,
+            isNewUser: data.isNewUser,
+          })
+        );
+        localStorage.setItem('tia_user_profile', JSON.stringify(data.profile));
+      } catch (storageErr) {
+        console.warn('LocalStorage error:', storageErr);
       }
 
       onAuthSuccess({
         token: data.token,
         user: data.user,
         profile: data.profile,
-        isNewUser: true,
+        isNewUser: data.isNewUser,
       });
     } catch (err: any) {
-      setErrorMessage(err.message || 'An error occurred during registration.');
+      setErrorMessage(err.message || 'Failed to verify verification code.');
     } finally {
       setLoading(false);
     }
   };
 
-  const handleForgotPassword = async (e: React.FormEvent) => {
-    e.preventDefault();
+  // Switch back to form to edit details / phone number
+  const handleChangePhoneNumber = () => {
+    setAuthStep('form');
     setErrorMessage(null);
     setSuccessMessage(null);
-
-    if (!email.trim() || !email.includes('@')) {
-      setErrorMessage('Please provide a valid email address.');
-      return;
-    }
-
-    setLoading(true);
-    try {
-      const res = await fetch('/api/auth/forgot-password', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: email.trim() }),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.success) {
-        throw new Error(data.error || 'Unable to process password reset request.');
-      }
-
-      if (data.resetCode) {
-        setResetCode(data.resetCode);
-      }
-      setForgotStep(2);
-      setSuccessMessage(
-        data.message ||
-          'Verification code generated! Please enter the 6-digit code and your new password below.'
-      );
-    } catch (err: any) {
-      setErrorMessage(err.message || 'Unable to process password reset.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleResetPassword = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setErrorMessage(null);
-    setSuccessMessage(null);
-
-    if (!resetCode.trim()) {
-      setErrorMessage('Please enter the 6-digit verification code.');
-      return;
-    }
-    if (!newPassword || newPassword.length < 6) {
-      setErrorMessage('New password must be at least 6 characters.');
-      return;
-    }
-    if (newPassword !== confirmPassword) {
-      setErrorMessage('Passwords do not match. Please re-enter.');
-      return;
-    }
-
-    setLoading(true);
-    try {
-      const res = await fetch('/api/auth/reset-password', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email: email.trim(),
-          resetCode: resetCode.trim(),
-          newPassword,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.success) {
-        throw new Error(data.error || 'Failed to reset password.');
-      }
-
-      // Switch back to login with success alert
-      setSuccessMessage(
-        'Password successfully updated! Please log in with your new password.'
-      );
-      setMode('login');
-      setPassword('');
-      setForgotStep(1);
-      setResetCode('');
-      setNewPassword('');
-      setConfirmPassword('');
-    } catch (err: any) {
-      setErrorMessage(err.message || 'Failed to update password.');
-    } finally {
-      setLoading(false);
-    }
   };
 
   return (
     <div
       id="auth-container"
-      className={`w-full min-h-screen min-h-[100dvh] h-auto flex flex-col items-center justify-start px-4 sm:px-6 pt-8 sm:pt-12 pb-16 sm:pb-24 overflow-y-auto overflow-x-hidden transition-colors ${
-        isDark ? 'bg-[#0b0f19] text-slate-100' : 'bg-slate-50 text-slate-900'
+      className={`min-h-screen w-full transition-colors duration-200 overflow-y-auto ${
+        isDark ? 'bg-[#0b0f19] text-slate-100' : 'bg-slate-50 text-slate-800'
       }`}
-      style={{
-        minHeight: '100vh',
-        height: 'auto',
-        overflowY: 'auto',
-        WebkitOverflowScrolling: 'touch',
-      }}
     >
-      <div className="w-full max-w-md my-auto py-2 flex flex-col items-stretch">
-        {/* Brand Logo & Headline */}
-        <div className="text-center mb-6">
-          <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-gradient-to-tr from-rose-500 via-purple-600 to-indigo-600 shadow-xl shadow-rose-500/20 mb-3 animate-pulse">
-            <Sparkles className="w-7 h-7 text-white" />
+      <div className="w-full max-w-xl mx-auto px-4 py-8 sm:py-12 pb-24 sm:pb-32">
+        {/* Brand Header */}
+        <div id="auth-header" className="text-center mb-8">
+          <div className="inline-flex items-center justify-center p-3 rounded-2xl bg-gradient-to-tr from-rose-500/20 via-rose-500/10 to-transparent border border-rose-500/20 mb-3 shadow-lg shadow-rose-500/5">
+            <Sparkles className="w-8 h-8 text-rose-500 animate-pulse" />
           </div>
-          <h1
-            id="auth-title"
-            className={`text-2xl sm:text-3xl font-bold tracking-tight font-display ${
-              isDark ? 'text-white' : 'text-slate-900'
-            }`}
-          >
-            Meet Tia
+          <h1 className="text-3xl font-bold tracking-tight bg-gradient-to-r from-rose-500 via-pink-500 to-indigo-500 bg-clip-text text-transparent">
+            Tia
           </h1>
-          <p className="text-sm text-slate-400 mt-1">
-            Your personal, witty & private AI companion
+          <p className="text-sm font-medium text-slate-400 mt-1">
+            Your Personal AI Voice Companion & Friend
           </p>
         </div>
 
-        {/* Card Container */}
+        {/* Status Alerts */}
+        {errorMessage && (
+          <div
+            id="auth-error-alert"
+            role="alert"
+            className="mb-6 p-4 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-400 text-sm flex items-start gap-3 animate-in fade-in slide-in-from-top-2"
+          >
+            <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />
+            <div className="flex-1 leading-relaxed">{errorMessage}</div>
+          </div>
+        )}
+
+        {successMessage && (
+          <div
+            id="auth-success-alert"
+            role="status"
+            className="mb-6 p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-sm flex items-start gap-3 animate-in fade-in slide-in-from-top-2"
+          >
+            <CheckCircle2 className="w-5 h-5 shrink-0 mt-0.5" />
+            <div className="flex-1 leading-relaxed">{successMessage}</div>
+          </div>
+        )}
+
+        {/* Main Card */}
         <div
           id="auth-card"
-          className={`rounded-2xl border p-6 sm:p-8 backdrop-blur-md shadow-2xl transition-all h-auto ${
+          className={`rounded-2xl border p-6 sm:p-8 shadow-2xl backdrop-blur-xl ${
             isDark
-              ? 'bg-slate-900/85 border-slate-800 text-slate-100'
-              : 'bg-white/95 border-slate-200 text-slate-900 shadow-slate-200/50'
+              ? 'bg-slate-900/80 border-slate-800/80 shadow-black/40'
+              : 'bg-white/90 border-slate-200/90 shadow-slate-300/40'
           }`}
-          style={{ height: 'auto', maxHeight: 'none' }}
         >
-            {/* Top Mode Tabs */}
-            {mode !== 'forgot' ? (
-              <div className="flex border-b border-slate-700/40 pb-3 mb-6">
-                <button
-                  type="button"
-                  id="tab-login"
-                  onClick={() => {
-                    setMode('login');
-                    setErrorMessage(null);
-                    setSuccessMessage(null);
-                  }}
-                  className={`flex-1 pb-2 text-sm font-semibold text-center border-b-2 transition-all cursor-pointer ${
-                    mode === 'login'
-                      ? 'border-rose-500 text-rose-500 font-bold'
-                      : 'border-transparent text-slate-400 hover:text-slate-200'
-                  }`}
-                >
-                  Log In
-                </button>
+          {authStep === 'form' ? (
+            /* =================================================================
+               STEP 1: Phone Number & Profile Form (Login / Signup)
+               ================================================================= */
+            <div>
+              {/* Navigation Tabs (Signup / Login) */}
+              <div
+                id="auth-mode-tabs"
+                className={`grid grid-cols-2 p-1 rounded-xl mb-6 border ${
+                  isDark ? 'bg-slate-800/60 border-slate-700/50' : 'bg-slate-100 border-slate-200'
+                }`}
+              >
                 <button
                   type="button"
                   id="tab-signup"
@@ -317,506 +395,329 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ isDark, onAuthSuccess })
                     setErrorMessage(null);
                     setSuccessMessage(null);
                   }}
-                  className={`flex-1 pb-2 text-sm font-semibold text-center border-b-2 transition-all cursor-pointer ${
+                  className={`py-2 text-sm font-semibold rounded-lg transition-all cursor-pointer ${
                     mode === 'signup'
-                      ? 'border-rose-500 text-rose-500 font-bold'
-                      : 'border-transparent text-slate-400 hover:text-slate-200'
+                      ? isDark
+                        ? 'bg-rose-500 text-white shadow-md'
+                        : 'bg-white text-rose-600 shadow-sm'
+                      : 'text-slate-400 hover:text-slate-200'
                   }`}
                 >
                   Create Account
                 </button>
-              </div>
-            ) : (
-              <div className="flex items-center justify-between pb-3 mb-6 border-b border-slate-700/40">
-                <span className="text-sm font-semibold text-rose-400 flex items-center gap-1.5">
-                  <KeyRound className="w-4 h-4" /> Reset Password
-                </span>
                 <button
                   type="button"
-                  id="btn-back-to-login"
+                  id="tab-login"
                   onClick={() => {
                     setMode('login');
-                    setForgotStep(1);
                     setErrorMessage(null);
                     setSuccessMessage(null);
                   }}
-                  className="text-xs text-slate-400 hover:text-slate-200 underline cursor-pointer"
+                  className={`py-2 text-sm font-semibold rounded-lg transition-all cursor-pointer ${
+                    mode === 'login'
+                      ? isDark
+                        ? 'bg-rose-500 text-white shadow-md'
+                        : 'bg-white text-rose-600 shadow-sm'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
                 >
-                  Back to Log In
+                  Log In
                 </button>
               </div>
-            )}
 
-            {/* Error Alert */}
-            {errorMessage && (
-              <div
-                id="auth-error-alert"
-                className="mb-4 p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-400 text-xs flex items-start gap-2"
-              >
-                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                <span>{errorMessage}</span>
-              </div>
-            )}
-
-            {/* Success Alert */}
-            {successMessage && (
-              <div
-                id="auth-success-alert"
-                className="mb-4 p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs flex items-start gap-2"
-              >
-                <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" />
-                <span>{successMessage}</span>
-              </div>
-            )}
-
-            {/* LOGIN FORM */}
-            {mode === 'login' && (
-              <form id="form-login" onSubmit={handleLogin} className="space-y-4">
-                <div>
-                  <label className="block text-xs font-medium text-slate-400 mb-1.5">
-                    Email Address
-                  </label>
-                  <div className="relative">
-                    <Mail className="w-4 h-4 absolute left-3.5 top-3 text-slate-500" />
-                    <input
-                      id="input-login-email"
-                      type="email"
-                      required
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      placeholder="name@example.com"
-                      className={`w-full pl-10 pr-3 py-2 rounded-xl text-sm border outline-none transition-all ${
-                        isDark
-                          ? 'bg-slate-800/80 border-slate-700 text-white focus:border-rose-500 focus:ring-1 focus:ring-rose-500'
-                          : 'bg-slate-50 border-slate-300 text-slate-900 focus:border-rose-500 focus:ring-1 focus:ring-rose-500'
-                      }`}
-                    />
+              <form onSubmit={handleRequestOtp} className="space-y-4">
+                {mode === 'signup' && (
+                  /* Full Name (Required on Signup) */
+                  <div>
+                    <label
+                      htmlFor="input-full-name"
+                      className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5"
+                    >
+                      Full Name <span className="text-rose-400">*</span>
+                    </label>
+                    <div className="relative">
+                      <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+                        <User className="w-4 h-4" />
+                      </div>
+                      <input
+                        id="input-full-name"
+                        type="text"
+                        required
+                        placeholder="e.g. Anurag"
+                        value={fullName}
+                        onChange={(e) => setFullName(e.target.value)}
+                        className={`w-full pl-10 pr-4 py-2.5 rounded-xl border text-sm transition-colors outline-none focus:ring-2 focus:ring-rose-500/40 ${
+                          isDark
+                            ? 'bg-slate-800/60 border-slate-700/80 text-white placeholder-slate-500'
+                            : 'bg-slate-50 border-slate-200 text-slate-900 placeholder-slate-400'
+                        }`}
+                      />
+                    </div>
                   </div>
-                </div>
+                )}
 
+                {/* Phone Number (Required on both) */}
                 <div>
                   <div className="flex items-center justify-between mb-1.5">
-                    <label className="text-xs font-medium text-slate-400">
-                      Password
+                    <label
+                      htmlFor="input-phone-number"
+                      className="block text-xs font-semibold uppercase tracking-wider text-slate-400"
+                    >
+                      Phone Number <span className="text-rose-400">*</span>
                     </label>
-                    <button
-                      type="button"
-                      id="btn-goto-forgot-pass"
-                      onClick={() => {
-                        setMode('forgot');
-                        setForgotStep(1);
-                        setErrorMessage(null);
-                        setSuccessMessage(null);
-                      }}
-                      className="text-xs text-rose-400 hover:text-rose-300 cursor-pointer"
-                    >
-                      Forgot Password?
-                    </button>
+                    <span className="text-[11px] text-slate-400">
+                      Indian Mobile (+91)
+                    </span>
                   </div>
-                  <div className="relative">
-                    <Lock className="w-4 h-4 absolute left-3.5 top-3 text-slate-500" />
-                    <input
-                      id="input-login-password"
-                      type={showPassword ? 'text' : 'password'}
-                      required
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      placeholder="••••••••"
-                      className={`w-full pl-10 pr-10 py-2 rounded-xl text-sm border outline-none transition-all ${
-                        isDark
-                          ? 'bg-slate-800/80 border-slate-700 text-white focus:border-rose-500 focus:ring-1 focus:ring-rose-500'
-                          : 'bg-slate-50 border-slate-300 text-slate-900 focus:border-rose-500 focus:ring-1 focus:ring-rose-500'
-                      }`}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-200 cursor-pointer"
-                    >
-                      {showPassword ? (
-                        <EyeOff className="w-4 h-4" />
-                      ) : (
-                        <Eye className="w-4 h-4" />
-                      )}
-                    </button>
-                  </div>
-                </div>
-
-                {/* Submit Button */}
-                <button
-                  type="submit"
-                  id="btn-submit-login"
-                  disabled={loading}
-                  className="w-full mt-2 py-2.5 px-4 rounded-xl bg-gradient-to-r from-rose-500 via-purple-600 to-indigo-600 hover:from-rose-600 hover:to-indigo-700 text-white font-medium text-sm shadow-lg shadow-rose-500/25 flex items-center justify-center gap-2 cursor-pointer transition-all disabled:opacity-50"
-                >
-                  {loading ? (
-                    <span className="inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  ) : (
-                    <>
-                      <span>Log In to Tia</span>
-                      <ArrowRight className="w-4 h-4" />
-                    </>
-                  )}
-                </button>
-              </form>
-            )}
-
-            {/* SIGN UP FORM */}
-            {mode === 'signup' && (
-              <form id="form-signup" onSubmit={handleSignup} className="space-y-3.5">
-                {/* Full Name (Required) */}
-                <div>
-                  <label className="block text-xs font-medium text-slate-400 mb-1">
-                    Full Name <span className="text-rose-400">*</span>
-                  </label>
-                  <div className="relative">
-                    <User className="w-4 h-4 absolute left-3 top-2.5 text-slate-500" />
-                    <input
-                      id="input-signup-fullname"
-                      type="text"
-                      required
-                      value={fullName}
-                      onChange={(e) => setFullName(e.target.value)}
-                      placeholder="e.g. Rahul Sharma"
-                      className={`w-full pl-9 pr-3 py-2 rounded-xl text-sm border outline-none transition-all ${
-                        isDark
-                          ? 'bg-slate-800/80 border-slate-700 text-white focus:border-rose-500'
-                          : 'bg-slate-50 border-slate-300 text-slate-900 focus:border-rose-500'
-                      }`}
-                    />
-                  </div>
-                </div>
-
-                {/* Email (Required) */}
-                <div>
-                  <label className="block text-xs font-medium text-slate-400 mb-1">
-                    Email Address <span className="text-rose-400">*</span>
-                  </label>
-                  <div className="relative">
-                    <Mail className="w-4 h-4 absolute left-3 top-2.5 text-slate-500" />
-                    <input
-                      id="input-signup-email"
-                      type="email"
-                      required
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      placeholder="name@example.com"
-                      className={`w-full pl-9 pr-3 py-2 rounded-xl text-sm border outline-none transition-all ${
-                        isDark
-                          ? 'bg-slate-800/80 border-slate-700 text-white focus:border-rose-500'
-                          : 'bg-slate-50 border-slate-300 text-slate-900 focus:border-rose-500'
-                      }`}
-                    />
-                  </div>
-                </div>
-
-                {/* Password (Required) */}
-                <div>
-                  <label className="block text-xs font-medium text-slate-400 mb-1">
-                    Password <span className="text-rose-400">*</span> (min 6 characters)
-                  </label>
-                  <div className="relative">
-                    <Lock className="w-4 h-4 absolute left-3 top-2.5 text-slate-500" />
-                    <input
-                      id="input-signup-password"
-                      type={showPassword ? 'text' : 'password'}
-                      required
-                      minLength={6}
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      placeholder="••••••••"
-                      className={`w-full pl-9 pr-10 py-2 rounded-xl text-sm border outline-none transition-all ${
-                        isDark
-                          ? 'bg-slate-800/80 border-slate-700 text-white focus:border-rose-500'
-                          : 'bg-slate-50 border-slate-300 text-slate-900 focus:border-rose-500'
-                      }`}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-3 top-2 text-slate-400 hover:text-slate-200 cursor-pointer"
-                    >
-                      {showPassword ? (
-                        <EyeOff className="w-4 h-4" />
-                      ) : (
-                        <Eye className="w-4 h-4" />
-                      )}
-                    </button>
-                  </div>
-                </div>
-
-                {/* Date of Birth (Required) + Auto-calculated Age */}
-                <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <label className="text-xs font-medium text-slate-400">
-                      Date of Birth <span className="text-rose-400">*</span>
-                    </label>
-                    {calculatedAge !== null && (
-                      <span className="text-[11px] font-semibold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
-                        Calculated Age: {calculatedAge} years
+                  <div className="relative flex items-center">
+                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400 gap-1.5">
+                      <Phone className="w-4 h-4 text-rose-400" />
+                      <span className="text-xs font-bold text-slate-400 pl-0.5 border-r border-slate-700 pr-2">
+                        +91
                       </span>
-                    )}
-                  </div>
-                  <div className="relative">
-                    <Calendar className="w-4 h-4 absolute left-3 top-2.5 text-slate-500" />
+                    </div>
                     <input
-                      id="input-signup-dob"
-                      type="date"
+                      id="input-phone-number"
+                      type="tel"
                       required
-                      max={new Date().toISOString().split('T')[0]}
-                      value={dob}
-                      onChange={(e) => setDob(e.target.value)}
-                      className={`w-full pl-9 pr-3 py-2 rounded-xl text-sm border outline-none transition-all ${
+                      placeholder="98765 43210"
+                      value={phone}
+                      onChange={(e) => setPhone(e.target.value)}
+                      className={`w-full pl-20 pr-4 py-2.5 rounded-xl border text-sm font-medium tracking-wide transition-colors outline-none focus:ring-2 focus:ring-rose-500/40 ${
                         isDark
-                          ? 'bg-slate-800/80 border-slate-700 text-white focus:border-rose-500'
-                          : 'bg-slate-50 border-slate-300 text-slate-900 focus:border-rose-500'
+                          ? 'bg-slate-800/60 border-slate-700/80 text-white placeholder-slate-500'
+                          : 'bg-slate-50 border-slate-200 text-slate-900 placeholder-slate-400'
                       }`}
                     />
                   </div>
+                  <p className="text-[11px] text-slate-400 mt-1">
+                    Enter your 10-digit mobile number. We'll send a real 6-digit OTP code to verify.
+                  </p>
                 </div>
 
-                {/* Address / City (Optional) */}
-                <div>
-                  <label className="block text-xs font-medium text-slate-400 mb-1">
-                    Location / City <span className="text-slate-500 text-[10px]">(Optional)</span>
-                  </label>
-                  <div className="relative">
-                    <MapPin className="w-4 h-4 absolute left-3 top-2.5 text-slate-500" />
-                    <input
-                      id="input-signup-address"
-                      type="text"
-                      value={address}
-                      onChange={(e) => setAddress(e.target.value)}
-                      placeholder="e.g. Mumbai, Maharashtra"
-                      className={`w-full pl-9 pr-3 py-2 rounded-xl text-sm border outline-none transition-all ${
-                        isDark
-                          ? 'bg-slate-800/80 border-slate-700 text-white focus:border-rose-500'
-                          : 'bg-slate-50 border-slate-300 text-slate-900 focus:border-rose-500'
-                      }`}
-                    />
-                  </div>
-                </div>
+                {mode === 'signup' && (
+                  <>
+                    {/* Date of Birth & Calculated Age */}
+                    <div>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <label
+                          htmlFor="input-dob"
+                          className="block text-xs font-semibold uppercase tracking-wider text-slate-400"
+                        >
+                          Date of Birth <span className="text-rose-400">*</span>
+                        </label>
+                        {calculatedAge !== null && (
+                          <span className="text-xs font-medium text-rose-400">
+                            Age: {calculatedAge} years old
+                          </span>
+                        )}
+                      </div>
+                      <div className="relative">
+                        <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+                          <Calendar className="w-4 h-4" />
+                        </div>
+                        <input
+                          id="input-dob"
+                          type="date"
+                          required
+                          max={new Date().toISOString().split('T')[0]}
+                          value={dob}
+                          onChange={(e) => setDob(e.target.value)}
+                          className={`w-full pl-10 pr-4 py-2.5 rounded-xl border text-sm transition-colors outline-none focus:ring-2 focus:ring-rose-500/40 ${
+                            isDark
+                              ? 'bg-slate-800/60 border-slate-700/80 text-white placeholder-slate-500'
+                              : 'bg-slate-50 border-slate-200 text-slate-900 placeholder-slate-400'
+                          }`}
+                        />
+                      </div>
+                      <p className="text-[11px] text-slate-400 mt-1">
+                        Tia calculates your age automatically to personalize conversation tone.
+                      </p>
+                    </div>
 
-                {/* Current Work / Occupation (Optional) */}
-                <div>
-                  <label className="block text-xs font-medium text-slate-400 mb-1">
-                    Current Work / Role <span className="text-slate-500 text-[10px]">(Optional)</span>
-                  </label>
-                  <div className="relative">
-                    <Briefcase className="w-4 h-4 absolute left-3 top-2.5 text-slate-500" />
-                    <input
-                      id="input-signup-occupation"
-                      type="text"
-                      value={occupation}
-                      onChange={(e) => setOccupation(e.target.value)}
-                      placeholder="e.g. Software Engineer, Student, Designer"
-                      className={`w-full pl-9 pr-3 py-2 rounded-xl text-sm border outline-none transition-all ${
-                        isDark
-                          ? 'bg-slate-800/80 border-slate-700 text-white focus:border-rose-500'
-                          : 'bg-slate-50 border-slate-300 text-slate-900 focus:border-rose-500'
-                      }`}
-                    />
-                  </div>
-                </div>
+                    {/* Location / City (Optional) */}
+                    <div>
+                      <label
+                        htmlFor="input-location"
+                        className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5"
+                      >
+                        Location / City <span className="text-slate-500 font-normal">(Optional)</span>
+                      </label>
+                      <div className="relative">
+                        <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+                          <MapPin className="w-4 h-4" />
+                        </div>
+                        <input
+                          id="input-location"
+                          type="text"
+                          placeholder="e.g. Patna, India"
+                          value={address}
+                          onChange={(e) => setAddress(e.target.value)}
+                          className={`w-full pl-10 pr-4 py-2.5 rounded-xl border text-sm transition-colors outline-none focus:ring-2 focus:ring-rose-500/40 ${
+                            isDark
+                              ? 'bg-slate-800/60 border-slate-700/80 text-white placeholder-slate-500'
+                              : 'bg-slate-50 border-slate-200 text-slate-900 placeholder-slate-400'
+                          }`}
+                        />
+                      </div>
+                    </div>
 
-                {/* Gender (Optional) */}
-                <div>
-                  <label className="block text-xs font-medium text-slate-400 mb-1">
-                    Gender <span className="text-slate-500 text-[10px]">(Optional)</span>
-                  </label>
-                  <select
-                    id="select-signup-gender"
-                    value={gender}
-                    onChange={(e) => setGender(e.target.value)}
-                    className={`w-full px-3 py-2 rounded-xl text-sm border outline-none transition-all ${
-                      isDark
-                        ? 'bg-slate-800/80 border-slate-700 text-white focus:border-rose-500'
-                        : 'bg-slate-50 border-slate-300 text-slate-900 focus:border-rose-500'
-                    }`}
-                  >
-                    <option value="unspecified">Prefer not to say</option>
-                    <option value="Male">Male</option>
-                    <option value="Female">Female</option>
-                    <option value="Non-binary">Non-binary</option>
-                  </select>
-                </div>
+                    {/* Current Work / Role (Optional) */}
+                    <div>
+                      <label
+                        htmlFor="input-work"
+                        className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5"
+                      >
+                        Current Work / Role <span className="text-slate-500 font-normal">(Optional)</span>
+                      </label>
+                      <div className="relative">
+                        <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+                          <Briefcase className="w-4 h-4" />
+                        </div>
+                        <input
+                          id="input-work"
+                          type="text"
+                          placeholder="e.g. Startup, Software Engineer, Student"
+                          value={occupation}
+                          onChange={(e) => setOccupation(e.target.value)}
+                          className={`w-full pl-10 pr-4 py-2.5 rounded-xl border text-sm transition-colors outline-none focus:ring-2 focus:ring-rose-500/40 ${
+                            isDark
+                              ? 'bg-slate-800/60 border-slate-700/80 text-white placeholder-slate-500'
+                              : 'bg-slate-50 border-slate-200 text-slate-900 placeholder-slate-400'
+                          }`}
+                        />
+                      </div>
+                    </div>
+                  </>
+                )}
 
                 {/* Submit Button */}
-                <button
-                  type="submit"
-                  id="btn-submit-signup"
-                  disabled={loading}
-                  className="w-full mt-3 py-2.5 px-4 rounded-xl bg-gradient-to-r from-rose-500 via-purple-600 to-indigo-600 hover:from-rose-600 hover:to-indigo-700 text-white font-medium text-sm shadow-lg shadow-rose-500/25 flex items-center justify-center gap-2 cursor-pointer transition-all disabled:opacity-50"
-                >
-                  {loading ? (
-                    <span className="inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  ) : (
-                    <>
-                      <span>Create Account & Meet Tia</span>
-                      <Sparkles className="w-4 h-4" />
-                    </>
-                  )}
-                </button>
-              </form>
-            )}
-
-            {/* FORGOT PASSWORD FLOW */}
-            {mode === 'forgot' && forgotStep === 1 && (
-              <form id="form-forgot-step1" onSubmit={handleForgotPassword} className="space-y-4">
-                <p className="text-xs text-slate-400">
-                  Enter your registered account email. A secure 6-digit verification code will be generated to reset your password.
-                </p>
-                <div>
-                  <label className="block text-xs font-medium text-slate-400 mb-1.5">
-                    Email Address
-                  </label>
-                  <div className="relative">
-                    <Mail className="w-4 h-4 absolute left-3.5 top-3 text-slate-500" />
-                    <input
-                      id="input-forgot-email"
-                      type="email"
-                      required
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      placeholder="name@example.com"
-                      className={`w-full pl-10 pr-3 py-2 rounded-xl text-sm border outline-none transition-all ${
-                        isDark
-                          ? 'bg-slate-800/80 border-slate-700 text-white focus:border-rose-500'
-                          : 'bg-slate-50 border-slate-300 text-slate-900 focus:border-rose-500'
-                      }`}
-                    />
-                  </div>
-                </div>
-
-                <button
-                  type="submit"
-                  id="btn-submit-forgot"
-                  disabled={loading}
-                  className="w-full py-2.5 px-4 rounded-xl bg-rose-500 hover:bg-rose-600 text-white font-medium text-sm shadow-lg shadow-rose-500/25 flex items-center justify-center gap-2 cursor-pointer transition-all disabled:opacity-50"
-                >
-                  {loading ? (
-                    <span className="inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  ) : (
-                    <span>Request Reset Code</span>
-                  )}
-                </button>
-              </form>
-            )}
-
-            {/* FORGOT PASSWORD STEP 2: VERIFICATION & NEW PASSWORD */}
-            {mode === 'forgot' && forgotStep === 2 && (
-              <form id="form-forgot-step2" onSubmit={handleResetPassword} className="space-y-3.5">
-                <p className="text-xs text-slate-400">
-                  Enter the 6-digit verification code sent for <strong className="text-rose-400">{email}</strong> and set your new password.
-                </p>
-
-                <div>
-                  <label className="block text-xs font-medium text-slate-400 mb-1">
-                    6-Digit Verification Code <span className="text-rose-400">*</span>
-                  </label>
-                  <div className="relative">
-                    <KeyRound className="w-4 h-4 absolute left-3.5 top-3 text-slate-500" />
-                    <input
-                      id="input-reset-code"
-                      type="text"
-                      required
-                      maxLength={6}
-                      value={resetCode}
-                      onChange={(e) => setResetCode(e.target.value)}
-                      placeholder="123456"
-                      className={`w-full pl-10 pr-3 py-2 rounded-xl text-sm tracking-widest font-mono font-bold border outline-none transition-all ${
-                        isDark
-                          ? 'bg-slate-800/80 border-slate-700 text-emerald-400 focus:border-rose-500'
-                          : 'bg-slate-50 border-slate-300 text-emerald-600 focus:border-rose-500'
-                      }`}
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-medium text-slate-400 mb-1">
-                    New Password <span className="text-rose-400">*</span> (min 6 characters)
-                  </label>
-                  <div className="relative">
-                    <Lock className="w-4 h-4 absolute left-3.5 top-3 text-slate-500" />
-                    <input
-                      id="input-new-password"
-                      type={showNewPassword ? 'text' : 'password'}
-                      required
-                      minLength={6}
-                      value={newPassword}
-                      onChange={(e) => setNewPassword(e.target.value)}
-                      placeholder="New password"
-                      className={`w-full pl-10 pr-10 py-2 rounded-xl text-sm border outline-none transition-all ${
-                        isDark
-                          ? 'bg-slate-800/80 border-slate-700 text-white focus:border-rose-500'
-                          : 'bg-slate-50 border-slate-300 text-slate-900 focus:border-rose-500'
-                      }`}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowNewPassword(!showNewPassword)}
-                      className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-200 cursor-pointer"
-                    >
-                      {showNewPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                    </button>
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-medium text-slate-400 mb-1">
-                    Confirm New Password <span className="text-rose-400">*</span>
-                  </label>
-                  <div className="relative">
-                    <Lock className="w-4 h-4 absolute left-3.5 top-3 text-slate-500" />
-                    <input
-                      id="input-confirm-password"
-                      type={showNewPassword ? 'text' : 'password'}
-                      required
-                      minLength={6}
-                      value={confirmPassword}
-                      onChange={(e) => setConfirmPassword(e.target.value)}
-                      placeholder="Confirm new password"
-                      className={`w-full pl-10 pr-3 py-2 rounded-xl text-sm border outline-none transition-all ${
-                        isDark
-                          ? 'bg-slate-800/80 border-slate-700 text-white focus:border-rose-500'
-                          : 'bg-slate-50 border-slate-300 text-slate-900 focus:border-rose-500'
-                      }`}
-                    />
-                  </div>
-                </div>
-
-                <div className="flex gap-2 pt-1">
+                <div className="pt-2">
                   <button
-                    type="button"
-                    onClick={() => setForgotStep(1)}
-                    className="py-2.5 px-3 rounded-xl border border-slate-700 text-xs text-slate-300 hover:bg-white/5 cursor-pointer"
-                  >
-                    Resend Code
-                  </button>
-                  <button
+                    id="btn-send-otp"
                     type="submit"
-                    id="btn-submit-new-password"
                     disabled={loading}
-                    className="flex-1 py-2.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-medium text-sm shadow-lg shadow-emerald-600/25 flex items-center justify-center gap-2 cursor-pointer transition-all disabled:opacity-50"
+                    className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-rose-500 to-pink-600 hover:from-rose-600 hover:to-pink-700 text-white font-semibold text-sm shadow-lg shadow-rose-500/25 transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {loading ? (
-                      <span className="inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                      <>
+                        <RefreshCw className="w-4 h-4 animate-spin" />
+                        <span>Sending OTP...</span>
+                      </>
                     ) : (
-                      <span>Save New Password & Log In</span>
+                      <>
+                        <span>{mode === 'signup' ? 'Continue & Send OTP' : 'Send OTP Code'}</span>
+                        <ArrowRight className="w-4 h-4" />
+                      </>
                     )}
                   </button>
                 </div>
               </form>
-            )}
-
-            {/* Privacy & RLS note */}
-            <div className="mt-6 pt-4 border-t border-slate-700/30 flex items-center justify-center gap-1.5 text-[11px] text-slate-400">
-              <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-              <span>Isolated User Session & Row-Level Security Enforced</span>
             </div>
+          ) : (
+            /* =================================================================
+               STEP 2: OTP Verification Screen
+               ================================================================= */
+            <div id="otp-verification-screen" className="space-y-6">
+              {/* Back to Form */}
+              <button
+                type="button"
+                id="btn-change-phone"
+                onClick={handleChangePhoneNumber}
+                className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-400 hover:text-slate-200 transition-colors cursor-pointer"
+              >
+                <ArrowLeft className="w-4 h-4" />
+                <span>Change phone number</span>
+              </button>
+
+              <div className="text-center space-y-2">
+                <div className="inline-flex p-3 rounded-full bg-rose-500/10 text-rose-400 border border-rose-500/20">
+                  <KeyRound className="w-6 h-6" />
+                </div>
+                <h2 className="text-xl font-bold tracking-tight">Verify your phone</h2>
+                <p className="text-xs text-slate-400 max-w-sm mx-auto leading-relaxed">
+                  We've sent a 6-digit verification code to{' '}
+                  <strong className="text-rose-400 font-semibold">{displayPhone}</strong>
+                </p>
+              </div>
+
+              {/* 6-Digit OTP Form */}
+              <form onSubmit={handleVerifyOtp} className="space-y-6">
+                <div className="flex items-center justify-center gap-2 sm:gap-3">
+                  {otpDigits.map((digit, idx) => (
+                    <input
+                      key={idx}
+                      ref={(el) => {
+                        otpInputRefs.current[idx] = el;
+                      }}
+                      id={`otp-box-${idx}`}
+                      type="text"
+                      inputMode="numeric"
+                      pattern="[0-9]*"
+                      maxLength={1}
+                      value={digit}
+                      onChange={(e) => handleOtpDigitChange(idx, e.target.value)}
+                      onKeyDown={(e) => handleOtpKeyDown(idx, e)}
+                      autoComplete="one-time-code"
+                      className={`w-11 h-13 sm:w-13 sm:h-14 text-center text-xl sm:text-2xl font-bold rounded-xl border transition-all outline-none focus:ring-2 focus:ring-rose-500 focus:border-rose-500 ${
+                        isDark
+                          ? 'bg-slate-800/80 border-slate-700 text-white'
+                          : 'bg-slate-50 border-slate-300 text-slate-900'
+                      } ${digit ? 'border-rose-500/70 shadow-sm shadow-rose-500/20' : ''}`}
+                    />
+                  ))}
+                </div>
+
+                {/* Verify Button */}
+                <button
+                  id="btn-verify-otp"
+                  type="submit"
+                  disabled={loading || otpDigits.join('').length !== 6}
+                  className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-rose-500 to-pink-600 hover:from-rose-600 hover:to-pink-700 text-white font-semibold text-sm shadow-lg shadow-rose-500/25 transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {loading ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                      <span>Verifying Code...</span>
+                    </>
+                  ) : (
+                    <>
+                      <ShieldCheck className="w-4 h-4" />
+                      <span>Verify OTP</span>
+                    </>
+                  )}
+                </button>
+
+                {/* Resend OTP & Cooldown Timer */}
+                <div className="flex items-center justify-center gap-2 text-xs pt-1">
+                  <span className="text-slate-400">Didn't receive the code?</span>
+                  {resendCooldown > 0 ? (
+                    <span className="text-slate-500 font-medium">
+                      Resend in {resendCooldown}s
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      id="btn-resend-otp"
+                      onClick={handleResendOtp}
+                      disabled={loading}
+                      className="font-semibold text-rose-400 hover:text-rose-300 transition-colors cursor-pointer underline underline-offset-4"
+                    >
+                      Resend OTP
+                    </button>
+                  )}
+                </div>
+              </form>
+            </div>
+          )}
+
+          {/* Privacy & Security Footnote */}
+          <div className="mt-8 pt-4 border-t border-slate-700/30 flex items-center justify-center gap-2 text-xs text-slate-400">
+            <ShieldCheck className="w-4 h-4 text-emerald-400" />
+            <span>Encrypted with Supabase Authentication & Private Row-Level Security</span>
           </div>
         </div>
       </div>
-    );
-  };
+    </div>
+  );
+};

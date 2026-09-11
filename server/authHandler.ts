@@ -1,16 +1,39 @@
 import type { IncomingMessage, ServerResponse } from 'http';
 import {
-  loadDatabase,
-  saveDatabase,
-  hashPassword,
-  verifyPassword,
-  generateId,
   createUserSession,
-  destroyUserSession,
   getUserByToken,
+  destroyUserSession,
+  getUserMemories,
+  getOrCreateUserByPhone,
+  findUserByPhone,
   calculateAge,
-  addUserMemory,
+  type ProfileRecord,
 } from './db.ts';
+import { validateIndianPhone } from './phoneUtils.ts';
+import { getSupabase, sendPhoneOtp, verifyPhoneOtp } from './supabaseClient.ts';
+
+// In-memory cache for pending signup requests awaiting OTP verification
+interface PendingRegistration {
+  phone: string;
+  fullName: string;
+  dob: string;
+  address: string;
+  occupation: string;
+  gender: string;
+  timestamp: number;
+}
+
+const pendingRegistrations = new Map<string, PendingRegistration>();
+
+// In-memory OTP rate limiter (last requested timestamp)
+const otpCooldowns = new Map<string, number>();
+const OTP_COOLDOWN_SECONDS = 30;
+
+function sendJson(res: ServerResponse, statusCode: number, data: any) {
+  res.statusCode = statusCode;
+  res.setHeader('Content-Type', 'application/json');
+  res.end(JSON.stringify(data));
+}
 
 function readRequestBody(req: IncomingMessage): Promise<any> {
   return new Promise((resolve) => {
@@ -46,26 +69,17 @@ function readRequestBody(req: IncomingMessage): Promise<any> {
   });
 }
 
-function sendJson(res: ServerResponse, statusCode: number, data: any) {
-  res.statusCode = statusCode;
-  res.setHeader('Content-Type', 'application/json');
-  res.end(JSON.stringify(data));
-}
-
 export function extractAuthToken(req: IncomingMessage): string | null {
-  const authHeader = req.headers['authorization'] || '';
-  if (typeof authHeader === 'string' && authHeader.startsWith('Bearer ')) {
-    return authHeader.slice(7).trim();
+  const authHeader = req.headers.authorization;
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    return authHeader.substring(7).trim();
   }
-  // Optional query token fallback for testing
-  const url = req.url || '';
-  try {
-    const urlObj = new URL(url, 'http://localhost');
-    const qToken = urlObj.searchParams.get('token');
-    if (qToken) return qToken.trim();
-  } catch {
-    // ignore
+
+  const customToken = req.headers['x-auth-token'];
+  if (typeof customToken === 'string') {
+    return customToken.trim();
   }
+
   return null;
 }
 
@@ -73,220 +87,237 @@ export async function handleAuthRequest(req: IncomingMessage, res: ServerRespons
   const url = req.url || '';
   const method = req.method?.toUpperCase();
 
-  // POST /api/auth/signup
-  if (method === 'POST' && url.startsWith('/api/auth/signup')) {
+  // GET /api/auth/status -> checks configuration of Supabase
+  if (method === 'GET' && url.startsWith('/api/auth/status')) {
+    const supabase = getSupabase();
+    return sendJson(res, 200, {
+      success: true,
+      configured: !!supabase,
+      hasSupabaseUrl: !!(process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL),
+      provider: 'supabase',
+    });
+  }
+
+  // POST /api/auth/otp/send
+  if (method === 'POST' && url.startsWith('/api/auth/otp/send')) {
     try {
       const body = await readRequestBody(req);
       const {
+        phone,
+        mode = 'login',
         full_name,
-        email,
-        password,
         date_of_birth,
         address,
-        gender,
-        profile_picture,
         occupation_status,
+        gender,
       } = body;
 
-      // Validate required fields
-      if (!full_name || typeof full_name !== 'string' || !full_name.trim()) {
-        return sendJson(res, 400, { success: false, error: 'Full name is required.' });
-      }
-
-      if (!email || typeof email !== 'string' || !email.includes('@')) {
-        return sendJson(res, 400, { success: false, error: 'A valid email address is required.' });
-      }
-
-      if (!password || typeof password !== 'string' || password.length < 6) {
+      // 1. Validate Phone Number
+      const phoneValidation = validateIndianPhone(phone);
+      if (!phoneValidation.valid || !phoneValidation.normalized) {
         return sendJson(res, 400, {
           success: false,
-          error: 'Password must be at least 6 characters long.',
+          error: phoneValidation.error || 'Please enter a valid 10-digit Indian phone number.',
         });
       }
 
-      if (!date_of_birth || typeof date_of_birth !== 'string') {
+      const normalizedPhone = phoneValidation.normalized;
+      const displayPhone = phoneValidation.display || normalizedPhone;
+
+      // 2. Cooldown check
+      const lastSent = otpCooldowns.get(normalizedPhone);
+      const now = Date.now();
+      if (lastSent && now - lastSent < OTP_COOLDOWN_SECONDS * 1000) {
+        const remaining = Math.ceil((OTP_COOLDOWN_SECONDS * 1000 - (now - lastSent)) / 1000);
+        return sendJson(res, 429, {
+          success: false,
+          error: `Please wait ${remaining} seconds before requesting a new OTP.`,
+          cooldownRemaining: remaining,
+        });
+      }
+
+      // 3. Mode validations
+      if (mode === 'signup') {
+        if (!full_name || typeof full_name !== 'string' || full_name.trim().length < 2) {
+          return sendJson(res, 400, {
+            success: false,
+            error: 'Full Name is required (at least 2 characters).',
+          });
+        }
+
+        if (!date_of_birth || typeof date_of_birth !== 'string') {
+          return sendJson(res, 400, {
+            success: false,
+            error: 'Date of Birth is required (YYYY-MM-DD).',
+          });
+        }
+
+        const birthDate = new Date(date_of_birth);
+        if (isNaN(birthDate.getTime()) || birthDate > new Date()) {
+          return sendJson(res, 400, {
+            success: false,
+            error: 'Please enter a valid past Date of Birth.',
+          });
+        }
+
+        // Cache registration details pending OTP verification
+        pendingRegistrations.set(normalizedPhone, {
+          phone: normalizedPhone,
+          fullName: full_name.trim(),
+          dob: date_of_birth.trim(),
+          address: (address || '').trim(),
+          occupation: (occupation_status || 'Explorer').trim(),
+          gender: gender || 'unspecified',
+          timestamp: now,
+        });
+      }
+
+      // 4. Send real OTP via Supabase
+      const otpResult = await sendPhoneOtp(normalizedPhone);
+      if (!otpResult.success) {
         return sendJson(res, 400, {
           success: false,
-          error: 'Date of birth is required (YYYY-MM-DD).',
+          error: otpResult.error || 'Failed to send OTP SMS.',
         });
       }
 
-      const cleanEmail = email.toLowerCase().trim();
-      const cleanName = full_name.trim();
-      const db = loadDatabase();
-
-      // Check if email already exists
-      const existingUser = db.users.find((u) => u.email === cleanEmail);
-      if (existingUser) {
-        return sendJson(res, 409, {
-          success: false,
-          error: 'An account with this email address already exists. Please log in.',
-        });
-      }
-
-      // Calculate age automatically from Date of Birth
-      const computedAge = calculateAge(date_of_birth);
-      const { hash, salt } = hashPassword(password);
-      const userId = generateId('usr');
-      const profileId = generateId('prof');
-      const now = new Date().toISOString();
-
-      const newUser = {
-        id: userId,
-        email: cleanEmail,
-        password_hash: hash,
-        salt,
-        created_at: now,
-        updated_at: now,
-      };
-
-      const newProfile = {
-        id: profileId,
-        user_id: userId,
-        full_name: cleanName,
-        date_of_birth: date_of_birth.trim(),
-        address: (address || 'India').trim(),
-        age: computedAge,
-        gender: gender || 'unspecified',
-        profile_picture: profile_picture || '',
-        occupation_status: occupation_status ? occupation_status.trim() : 'Explorer',
-        created_at: now,
-        updated_at: now,
-      };
-
-      db.users.push(newUser);
-      db.profiles.push(newProfile);
-      saveDatabase(db);
-
-      // Create initial private memory for the user
-      addUserMemory(
-        userId,
-        `${cleanName} is the owner and companion of Tia.`,
-        'identity',
-        'owner_identity'
-      );
-      if (address && address.trim()) {
-        addUserMemory(
-          userId,
-          `${cleanName} lives in ${address.trim()}.`,
-          'personal',
-          'location'
-        );
-      }
-      if (occupation_status && occupation_status.trim()) {
-        addUserMemory(
-          userId,
-          `${cleanName} is currently ${occupation_status.trim()}.`,
-          'work',
-          'occupation'
-        );
-      }
-
-      // Generate session token
-      const token = createUserSession(userId);
-
-      return sendJson(res, 201, {
-        success: true,
-        token,
-        user: { id: userId, email: cleanEmail },
-        profile: newProfile,
-        isNewUser: true,
-        message: 'Account created successfully! Welcome to Tia.',
-      });
-    } catch (err) {
-      console.error('Signup error:', err);
-      return sendJson(res, 500, {
-        success: false,
-        error: 'Failed to create account. Please try again.',
-      });
-    }
-  }
-
-  // POST /api/auth/login
-  if (method === 'POST' && url.startsWith('/api/auth/login')) {
-    try {
-      const body = await readRequestBody(req);
-      const { email, password } = body;
-
-      if (!email || !password) {
-        return sendJson(res, 400, {
-          success: false,
-          error: 'Email and password are required.',
-        });
-      }
-
-      const cleanEmail = String(email).toLowerCase().trim();
-      const db = loadDatabase();
-      const user = db.users.find((u) => u.email === cleanEmail);
-
-      if (!user) {
-        return sendJson(res, 401, {
-          success: false,
-          error: 'Invalid email or password. Please check your credentials.',
-        });
-      }
-
-      const isMatch = verifyPassword(String(password), user.password_hash, user.salt);
-      if (!isMatch) {
-        return sendJson(res, 401, {
-          success: false,
-          error: 'Invalid email or password. Please check your credentials.',
-        });
-      }
-
-      let profile = db.profiles.find((p) => p.user_id === user.id);
-      if (!profile) {
-        profile = {
-          id: generateId('prof'),
-          user_id: user.id,
-          full_name: cleanEmail.split('@')[0],
-          date_of_birth: '2000-01-01',
-          address: 'India',
-          age: calculateAge('2000-01-01'),
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        };
-        db.profiles.push(profile);
-        saveDatabase(db);
-      } else {
-        profile.age = calculateAge(profile.date_of_birth);
-      }
-
-      const token = createUserSession(user.id);
+      // Record timestamp for cooldown
+      otpCooldowns.set(normalizedPhone, now);
 
       return sendJson(res, 200, {
         success: true,
-        token,
-        user: { id: user.id, email: user.email },
-        profile,
-        isNewUser: false,
-        message: `Welcome back, ${profile.full_name}!`,
+        phone: normalizedPhone,
+        displayPhone,
+        message: `A 6-digit verification code has been sent to ${displayPhone}.`,
       });
-    } catch (err) {
-      console.error('Login error:', err);
+    } catch (err: any) {
+      console.error('OTP Send error:', err);
       return sendJson(res, 500, {
         success: false,
-        error: 'An unexpected error occurred during login.',
+        error: err.message || 'An unexpected error occurred while sending OTP.',
       });
     }
   }
 
-  // GET /api/auth/me
+  // POST /api/auth/otp/verify
+  if (method === 'POST' && url.startsWith('/api/auth/otp/verify')) {
+    try {
+      const body = await readRequestBody(req);
+      const {
+        phone,
+        otp,
+        mode = 'login',
+        full_name,
+        date_of_birth,
+        address,
+        occupation_status,
+        gender,
+      } = body;
+
+      // 1. Validate Phone
+      const phoneValidation = validateIndianPhone(phone);
+      if (!phoneValidation.valid || !phoneValidation.normalized) {
+        return sendJson(res, 400, {
+          success: false,
+          error: phoneValidation.error || 'Invalid phone number.',
+        });
+      }
+
+      const normalizedPhone = phoneValidation.normalized;
+
+      // 2. Validate OTP code
+      if (!otp || typeof otp !== 'string' || !/^\d{6}$/.test(otp.trim())) {
+        return sendJson(res, 400, {
+          success: false,
+          error: 'Please enter a valid 6-digit numerical verification code.',
+        });
+      }
+
+      // 3. Verify OTP via Supabase Authentication
+      const verifyResult = await verifyPhoneOtp(normalizedPhone, otp.trim());
+      if (!verifyResult.success || !verifyResult.user) {
+        return sendJson(res, 400, {
+          success: false,
+          error:
+            verifyResult.error ||
+            'Incorrect verification code. Please check the 6-digit code and try again.',
+        });
+      }
+
+      const supabaseUser = verifyResult.user;
+
+      // 4. Retrieve pending signup metadata if this was a signup
+      const pending = pendingRegistrations.get(normalizedPhone);
+      const finalName = full_name?.trim() || pending?.fullName;
+      const finalDob = date_of_birth?.trim() || pending?.dob;
+      const finalAddress = address?.trim() || pending?.address;
+      const finalOccupation = occupation_status?.trim() || pending?.occupation;
+      const finalGender = gender || pending?.gender;
+
+      // 5. Connect or create user profile in database
+      const { user, profile, isNewUser } = getOrCreateUserByPhone(normalizedPhone, {
+        full_name: finalName,
+        date_of_birth: finalDob,
+        address: finalAddress,
+        occupation_status: finalOccupation,
+        gender: finalGender,
+        supabase_user_id: supabaseUser.id,
+      });
+
+      // Clear pending signup data
+      pendingRegistrations.delete(normalizedPhone);
+
+      // 6. Create authenticated session token
+      const sessionToken = createUserSession(user.id);
+
+      return sendJson(res, 200, {
+        success: true,
+        token: sessionToken,
+        user: {
+          id: user.id,
+          phone_number: user.phone_number,
+          supabase_id: supabaseUser.id,
+        },
+        profile,
+        isNewUser,
+        message: isNewUser
+          ? `Welcome to Tia, ${profile.full_name}! Your account is ready.`
+          : `Welcome back, ${profile.full_name}!`,
+      });
+    } catch (err: any) {
+      console.error('OTP Verify error:', err);
+      return sendJson(res, 500, {
+        success: false,
+        error: err.message || 'An unexpected error occurred while verifying OTP.',
+      });
+    }
+  }
+
+  // GET /api/auth/me -> Returns authenticated user & profile
   if (method === 'GET' && url.startsWith('/api/auth/me')) {
     const token = extractAuthToken(req);
     if (!token) {
-      return sendJson(res, 401, { success: false, error: 'Unauthorized: Missing token' });
+      return sendJson(res, 401, { success: false, error: 'Unauthorized: Missing session token' });
     }
 
     const auth = getUserByToken(token);
     if (!auth) {
-      return sendJson(res, 401, { success: false, error: 'Unauthorized: Invalid or expired session' });
+      return sendJson(res, 401, {
+        success: false,
+        error: 'Unauthorized: Invalid or expired session. Please log in again.',
+      });
     }
+
+    const memories = getUserMemories(auth.user.id);
 
     return sendJson(res, 200, {
       success: true,
-      user: { id: auth.user.id, email: auth.user.email },
+      user: {
+        id: auth.user.id,
+        phone_number: auth.user.phone_number,
+      },
       profile: auth.profile,
+      memories,
     });
   }
 
@@ -299,141 +330,5 @@ export async function handleAuthRequest(req: IncomingMessage, res: ServerRespons
     return sendJson(res, 200, { success: true, message: 'Logged out successfully.' });
   }
 
-  // POST /api/auth/forgot-password
-  if (method === 'POST' && url.startsWith('/api/auth/forgot-password')) {
-    try {
-      const body = await readRequestBody(req);
-      const { email } = body;
-      if (!email || typeof email !== 'string' || !email.includes('@')) {
-        return sendJson(res, 400, {
-          success: false,
-          error: 'Please enter a valid email address.',
-        });
-      }
-
-      const cleanEmail = email.toLowerCase().trim();
-      const db = loadDatabase();
-      const user = db.users.find((u) => u.email === cleanEmail);
-
-      if (!user) {
-        return sendJson(res, 404, {
-          success: false,
-          error: 'No account registered with this email address. Please verify your email or create a new account.',
-        });
-      }
-
-      // Generate real 6-digit verification code & reset token (valid for 15 mins)
-      const resetCode = Math.floor(100000 + Math.random() * 900000).toString();
-      const resetToken = generateId('rst');
-      const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
-
-      (user as any).reset_code = resetCode;
-      (user as any).reset_token = resetToken;
-      (user as any).reset_expires_at = expiresAt;
-      saveDatabase(db);
-
-      const profile = db.profiles.find((p) => p.user_id === user.id);
-      const userName = profile?.full_name || 'User';
-
-      return sendJson(res, 200, {
-        success: true,
-        email: cleanEmail,
-        resetCode,
-        resetToken,
-        userName,
-        message: `Verification code generated for ${userName} (${cleanEmail}): ${resetCode}. Please enter this 6-digit code and your new password below.`,
-      });
-    } catch (err) {
-      console.error('Forgot password error:', err);
-      return sendJson(res, 500, {
-        success: false,
-        error: 'Failed to process password reset request. Please try again.',
-      });
-    }
-  }
-
-  // POST /api/auth/reset-password
-  if (method === 'POST' && url.startsWith('/api/auth/reset-password')) {
-    try {
-      const body = await readRequestBody(req);
-      const { email, resetCode, newPassword } = body;
-
-      if (!email || !email.includes('@')) {
-        return sendJson(res, 400, {
-          success: false,
-          error: 'A valid email address is required.',
-        });
-      }
-
-      if (!resetCode) {
-        return sendJson(res, 400, {
-          success: false,
-          error: '6-digit verification code is required.',
-        });
-      }
-
-      if (!newPassword || typeof newPassword !== 'string' || newPassword.length < 6) {
-        return sendJson(res, 400, {
-          success: false,
-          error: 'New password must be at least 6 characters long.',
-        });
-      }
-
-      const cleanEmail = String(email).toLowerCase().trim();
-      const cleanCode = String(resetCode).trim();
-      const db = loadDatabase();
-      const user = db.users.find((u) => u.email === cleanEmail);
-
-      if (!user) {
-        return sendJson(res, 404, {
-          success: false,
-          error: 'Account not found. Please check your email address.',
-        });
-      }
-
-      const userWithReset = user as any;
-      if (!userWithReset.reset_code || userWithReset.reset_code !== cleanCode) {
-        return sendJson(res, 400, {
-          success: false,
-          error: 'Invalid verification code. Please check the 6-digit code and try again.',
-        });
-      }
-
-      if (
-        userWithReset.reset_expires_at &&
-        new Date(userWithReset.reset_expires_at).getTime() < Date.now()
-      ) {
-        return sendJson(res, 400, {
-          success: false,
-          error: 'Verification code has expired. Please request a new code.',
-        });
-      }
-
-      // Hash the new password with a new cryptographically random salt
-      const { hash, salt } = hashPassword(newPassword);
-      user.password_hash = hash;
-      user.salt = salt;
-      user.updated_at = new Date().toISOString();
-
-      // Clear the used reset code
-      delete userWithReset.reset_code;
-      delete userWithReset.reset_token;
-      delete userWithReset.reset_expires_at;
-
-      saveDatabase(db);
-
-      return sendJson(res, 200, {
-        success: true,
-        message: 'Password has been successfully updated! You can now log in with your new password.',
-      });
-    } catch (err) {
-      console.error('Reset password error:', err);
-      return sendJson(res, 500, {
-        success: false,
-        error: 'Failed to reset password. Please try again.',
-      });
-    }
-  }
-
-  return sendJson(res, 404, { success: false, error: 'Auth endpoint not found' });
+  return sendJson(res, 404, { success: false, error: 'Auth endpoint not found.' });
 }

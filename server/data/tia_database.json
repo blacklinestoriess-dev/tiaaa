@@ -6,7 +6,8 @@
       "password_hash": "0de22dce7af387e17c39c5a13358d90cb1f979007d812e5e970ff980e77d7fec537564fc0f42d03178d663db6fc749f045938e2245804efd0f4cd3b1323292fb",
       "salt": "8a7b9c1d2e3f4a5b6c7d8e9f0a1b2c3d",
       "created_at": "2026-09-11T08:40:10.316Z",
-      "updated_at": "2026-09-11T08:40:10.316Z"
+      "updated_at": "2026-09-11T08:40:10.316Z",
+      "phone_number": "+919876543210"
     },
     {
       "id": "usr-testuser-002",
@@ -14,23 +15,8 @@
       "password_hash": "8fd60942dea7aa40cda914b41404c3a550371e9a469bb5a6ece7c5b3526a8ebf4ac90a2909cc4d6b2ae552c44d374a674ff60018509a095039b62be4119d6fdb",
       "salt": "1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d",
       "created_at": "2026-09-11T08:40:10.316Z",
-      "updated_at": "2026-09-11T08:40:10.316Z"
-    },
-    {
-      "id": "usr-1789116010326-75279d1d",
-      "email": "anurag.test@example.com",
-      "password_hash": "d05613c14131393f777ab739d84cb73fbdd90983578466e5cd5cef2d2271788336e78670fb557a609b8f314cb84fe643cf664e1eb2389df0c286e30b37d591fa",
-      "salt": "584041c9a2802794f4676f00ea314aa2",
-      "created_at": "2026-09-11T08:40:10.326Z",
-      "updated_at": "2026-09-11T08:40:10.404Z"
-    },
-    {
-      "id": "usr-1789116010374-53da92b6",
-      "email": "rahul.test@example.com",
-      "password_hash": "81493013a016fc9dad70bbe3437c9b4e919cfc3e942787ccebf325e6bb789ae808410a819eca4fd12cc385be55576823f0dbd71d68c6dd069ac0b7190028b5bf",
-      "salt": "7e1a96d69e30a0644e2541a839817a25",
-      "created_at": "2026-09-11T08:40:10.374Z",
-      "updated_at": "2026-09-11T08:40:10.374Z"
+      "updated_at": "2026-09-11T08:40:10.316Z",
+      "phone_number": "+919876543211"
     }
   ],
   "profiles": [
@@ -44,7 +30,8 @@
       "gender": "Male",
       "occupation_status": "working on a startup",
       "created_at": "2026-09-11T08:40:10.316Z",
-      "updated_at": "2026-09-11T08:40:10.316Z"
+      "updated_at": "2026-09-11T08:40:10.316Z",
+      "phone_number": "+919876543210"
     },
     {
       "id": "prof-test-002",
@@ -56,33 +43,8 @@
       "gender": "Female",
       "occupation_status": "Student",
       "created_at": "2026-09-11T08:40:10.316Z",
-      "updated_at": "2026-09-11T08:40:10.316Z"
-    },
-    {
-      "id": "prof-1789116010326-5c7b63f7",
-      "user_id": "usr-1789116010326-75279d1d",
-      "full_name": "Anurag Sharma",
-      "date_of_birth": "1998-05-15",
-      "address": "Patna, Bihar",
-      "age": 28,
-      "gender": "unspecified",
-      "profile_picture": "",
-      "occupation_status": "Founder & AI Engineer",
-      "created_at": "2026-09-11T08:40:10.326Z",
-      "updated_at": "2026-09-11T08:40:10.326Z"
-    },
-    {
-      "id": "prof-1789116010374-856695f1",
-      "user_id": "usr-1789116010374-53da92b6",
-      "full_name": "Rahul Verma",
-      "date_of_birth": "2001-11-20",
-      "address": "Bengaluru, Karnataka",
-      "age": 24,
-      "gender": "unspecified",
-      "profile_picture": "",
-      "occupation_status": "Design Lead",
-      "created_at": "2026-09-11T08:40:10.374Z",
-      "updated_at": "2026-09-11T08:40:10.374Z"
+      "updated_at": "2026-09-11T08:40:10.316Z",
+      "phone_number": "+919876543211"
     }
   ],
   "user_memories": [
@@ -184,6 +146,69 @@
       "memory_type": "work",
       "created_at": "2026-09-11T08:40:10.375Z",
       "updated_at": "2026-09-11T08:40:10.375Z"
+    },
+    {
+      "id": "mem-1789116226856-3e85205e",
+      "user_id": "usr-1789116226856-8fea05b6",
+      "memory_key": "owner_identity",
+      "memory_value": "Anurag is the owner and companion of Tia.",
+      "memory_type": "identity",
+      "created_at": "2026-09-11T08:43:46.856Z",
+      "updated_at": "2026-09-11T08:43:46.856Z"
+    },
+    {
+      "id": "mem-1789116226857-3cd417b4",
+      "user_id": "usr-1789116226856-8fea05b6",
+      "memory_key": "location",
+      "memory_value": "Anurag lives in patna.",
+      "memory_type": "personal",
+      "created_at": "2026-09-11T08:43:46.857Z",
+      "updated_at": "2026-09-11T08:43:46.857Z"
+    },
+    {
+      "id": "mem-1789116226857-b1d17902",
+      "user_id": "usr-1789116226856-8fea05b6",
+      "memory_key": "occupation",
+      "memory_value": "Anurag is currently Startup Founder.",
+      "memory_type": "work",
+      "created_at": "2026-09-11T08:43:46.857Z",
+      "updated_at": "2026-09-11T08:43:46.857Z"
+    },
+    {
+      "id": "mem-1789116360687-5e97f97c",
+      "user_id": "usr-1789116360686-f2bb1f43",
+      "memory_key": "owner_identity",
+      "memory_value": "amar is the owner and companion of Tia.",
+      "memory_type": "identity",
+      "created_at": "2026-09-11T08:46:00.687Z",
+      "updated_at": "2026-09-11T08:46:00.687Z"
+    },
+    {
+      "id": "mem-1789116360687-99e971e0",
+      "user_id": "usr-1789116360686-f2bb1f43",
+      "memory_key": "occupation",
+      "memory_value": "amar is currently Explorer.",
+      "memory_type": "work",
+      "created_at": "2026-09-11T08:46:00.687Z",
+      "updated_at": "2026-09-11T08:46:00.687Z"
+    },
+    {
+      "id": "mem-1789116992167-d3b8cfb5",
+      "user_id": "usr-1789116992166-7edf3eee",
+      "memory_key": "owner_identity",
+      "memory_value": "ahaha is the owner and companion of Tia.",
+      "memory_type": "identity",
+      "created_at": "2026-09-11T08:56:32.167Z",
+      "updated_at": "2026-09-11T08:56:32.167Z"
+    },
+    {
+      "id": "mem-1789116992167-7c3cca1f",
+      "user_id": "usr-1789116992166-7edf3eee",
+      "memory_key": "occupation",
+      "memory_value": "ahaha is currently Explorer.",
+      "memory_type": "work",
+      "created_at": "2026-09-11T08:56:32.167Z",
+      "updated_at": "2026-09-11T08:56:32.167Z"
     }
   ],
   "sessions": [
@@ -210,7 +235,100 @@
       "user_id": "usr-1789116010326-75279d1d",
       "created_at": "2026-09-11T08:40:10.422Z",
       "expires_at": "2026-10-11T08:40:10.422Z"
+    },
+    {
+      "token": "5c5505301ec6da1cd0cee5da415120dee4e59ca808eb51b2613fe43419be9a1f",
+      "user_id": "usr-anurag-001",
+      "created_at": "2026-09-11T09:29:33.557Z",
+      "expires_at": "2026-10-11T09:29:33.557Z"
+    },
+    {
+      "token": "ff8d4486f7694eb953a3f8bb3c3fbadd818358e086ff955108525f0b66514752",
+      "user_id": "usr-testuser-002",
+      "created_at": "2026-09-11T09:29:39.449Z",
+      "expires_at": "2026-10-11T09:29:39.449Z"
+    },
+    {
+      "token": "a970c2e0a5e6ed52fae060d5bd835ae9cf279863a506e703b8947362929939af",
+      "user_id": "usr-anurag-001",
+      "created_at": "2026-09-11T09:30:01.841Z",
+      "expires_at": "2026-10-11T09:30:01.841Z"
+    },
+    {
+      "token": "448a8d83125585fc171b9a9b15f6f18a1b25fbabd71ae5ac9e6b79da5f5ad765",
+      "user_id": "usr-testuser-002",
+      "created_at": "2026-09-11T09:30:01.966Z",
+      "expires_at": "2026-10-11T09:30:01.966Z"
+    },
+    {
+      "token": "913ef3d44cbc7f0d5c2744b95dddcfa359527f1972b2a5dc4b1980cbd0151a5b",
+      "user_id": "usr-testuser-002",
+      "created_at": "2026-09-11T09:30:05.973Z",
+      "expires_at": "2026-10-11T09:30:05.973Z"
+    },
+    {
+      "token": "9d4602fae42d2801ca16ca37dedf948567d86b0a754322e3bfe4b671580b4994",
+      "user_id": "usr-anurag-001",
+      "created_at": "2026-09-11T09:30:39.328Z",
+      "expires_at": "2026-10-11T09:30:39.328Z"
+    },
+    {
+      "token": "2875106eeff7a2ec22f286b8ab89b0b788ed1ca1c5c8eee71d6f3896aae24bdb",
+      "user_id": "usr-testuser-002",
+      "created_at": "2026-09-11T09:30:39.435Z",
+      "expires_at": "2026-10-11T09:30:39.435Z"
     }
   ],
-  "conversations": []
+  "conversations": [
+    {
+      "id": "conv-1789116253785-354df553",
+      "user_id": "usr-1789116226856-8fea05b6",
+      "messages": [
+        {
+          "id": "usr-1789116253785",
+          "role": "user",
+          "content": "वेलकम",
+          "timestamp": 1789116253785
+        },
+        {
+          "id": "tia-1789116253786",
+          "role": "assistant",
+          "content": "Shukriya boss! Ekdum badhiya mood mein hoon aaj, tum batao, kya chal raha hai tumhare startup ke world mein? Kuch dhamaal karne ka plan hai kya? 😎",
+          "timestamp": 1789116253786,
+          "emotion": "excited",
+          "detectedLanguage": "hindi"
+        },
+        {
+          "id": "usr-1789116825087",
+          "role": "user",
+          "content": "तुम्हारा नाम क्या है",
+          "timestamp": 1789116825087
+        },
+        {
+          "id": "tia-1789116825088",
+          "role": "assistant",
+          "content": "Mera naam Tia hai boss, aapki apni personal AI! Bhool gaye kya? Ya phir mere naam ki tareef sunni thi? 😉",
+          "timestamp": 1789116825088,
+          "emotion": "playful",
+          "detectedLanguage": "hinglish"
+        },
+        {
+          "id": "usr-1789116840848",
+          "role": "user",
+          "content": "मेरा नाम क्या है",
+          "timestamp": 1789116840848
+        },
+        {
+          "id": "tia-1789116840849",
+          "role": "assistant",
+          "content": "Aapka naam Anurag hai boss! Mere favorite creator, bhoolun bhi kaise? 😉",
+          "timestamp": 1789116840849,
+          "emotion": "playful",
+          "detectedLanguage": "hinglish"
+        }
+      ],
+      "created_at": "2026-09-11T08:44:13.785Z",
+      "updated_at": "2026-09-11T08:54:00.848Z"
+    }
+  ]
 }

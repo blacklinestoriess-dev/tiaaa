@@ -1356,6 +1356,7 @@ export default function App() {
         ownerProfile={ownerProfile}
         userProfile={userProfile}
         authEmail={authSession.user.email}
+        authPhone={authSession.user.phone_number || userProfile?.phone_number}
         onLogout={handleLogout}
         onUpdateOwnerProfile={handleUpdateOwnerProfile}
         onAddMemory={handleAddMemory}
