@@ -1,0 +1,216 @@
+{
+  "users": [
+    {
+      "id": "usr-anurag-001",
+      "email": "anurag@tia.ai",
+      "password_hash": "0de22dce7af387e17c39c5a13358d90cb1f979007d812e5e970ff980e77d7fec537564fc0f42d03178d663db6fc749f045938e2245804efd0f4cd3b1323292fb",
+      "salt": "8a7b9c1d2e3f4a5b6c7d8e9f0a1b2c3d",
+      "created_at": "2026-09-11T08:40:10.316Z",
+      "updated_at": "2026-09-11T08:40:10.316Z"
+    },
+    {
+      "id": "usr-testuser-002",
+      "email": "test@tia.ai",
+      "password_hash": "8fd60942dea7aa40cda914b41404c3a550371e9a469bb5a6ece7c5b3526a8ebf4ac90a2909cc4d6b2ae552c44d374a674ff60018509a095039b62be4119d6fdb",
+      "salt": "1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d",
+      "created_at": "2026-09-11T08:40:10.316Z",
+      "updated_at": "2026-09-11T08:40:10.316Z"
+    },
+    {
+      "id": "usr-1789116010326-75279d1d",
+      "email": "anurag.test@example.com",
+      "password_hash": "d05613c14131393f777ab739d84cb73fbdd90983578466e5cd5cef2d2271788336e78670fb557a609b8f314cb84fe643cf664e1eb2389df0c286e30b37d591fa",
+      "salt": "584041c9a2802794f4676f00ea314aa2",
+      "created_at": "2026-09-11T08:40:10.326Z",
+      "updated_at": "2026-09-11T08:40:10.404Z"
+    },
+    {
+      "id": "usr-1789116010374-53da92b6",
+      "email": "rahul.test@example.com",
+      "password_hash": "81493013a016fc9dad70bbe3437c9b4e919cfc3e942787ccebf325e6bb789ae808410a819eca4fd12cc385be55576823f0dbd71d68c6dd069ac0b7190028b5bf",
+      "salt": "7e1a96d69e30a0644e2541a839817a25",
+      "created_at": "2026-09-11T08:40:10.374Z",
+      "updated_at": "2026-09-11T08:40:10.374Z"
+    }
+  ],
+  "profiles": [
+    {
+      "id": "prof-anurag-001",
+      "user_id": "usr-anurag-001",
+      "full_name": "Anurag",
+      "date_of_birth": "2000-05-15",
+      "address": "Patna, India",
+      "age": 26,
+      "gender": "Male",
+      "occupation_status": "working on a startup",
+      "created_at": "2026-09-11T08:40:10.316Z",
+      "updated_at": "2026-09-11T08:40:10.316Z"
+    },
+    {
+      "id": "prof-test-002",
+      "user_id": "usr-testuser-002",
+      "full_name": "Test User",
+      "date_of_birth": "2003-08-20",
+      "address": "Delhi, India",
+      "age": 23,
+      "gender": "Female",
+      "occupation_status": "Student",
+      "created_at": "2026-09-11T08:40:10.316Z",
+      "updated_at": "2026-09-11T08:40:10.316Z"
+    },
+    {
+      "id": "prof-1789116010326-5c7b63f7",
+      "user_id": "usr-1789116010326-75279d1d",
+      "full_name": "Anurag Sharma",
+      "date_of_birth": "1998-05-15",
+      "address": "Patna, Bihar",
+      "age": 28,
+      "gender": "unspecified",
+      "profile_picture": "",
+      "occupation_status": "Founder & AI Engineer",
+      "created_at": "2026-09-11T08:40:10.326Z",
+      "updated_at": "2026-09-11T08:40:10.326Z"
+    },
+    {
+      "id": "prof-1789116010374-856695f1",
+      "user_id": "usr-1789116010374-53da92b6",
+      "full_name": "Rahul Verma",
+      "date_of_birth": "2001-11-20",
+      "address": "Bengaluru, Karnataka",
+      "age": 24,
+      "gender": "unspecified",
+      "profile_picture": "",
+      "occupation_status": "Design Lead",
+      "created_at": "2026-09-11T08:40:10.374Z",
+      "updated_at": "2026-09-11T08:40:10.374Z"
+    }
+  ],
+  "user_memories": [
+    {
+      "id": "mem-anurag-1",
+      "user_id": "usr-anurag-001",
+      "memory_key": "identity",
+      "memory_value": "Anurag is the creator and owner of Tia.",
+      "memory_type": "identity",
+      "created_at": "2026-09-11T08:40:10.316Z",
+      "updated_at": "2026-09-11T08:40:10.316Z"
+    },
+    {
+      "id": "mem-anurag-2",
+      "user_id": "usr-anurag-001",
+      "memory_key": "work",
+      "memory_value": "Anurag lives in Patna, India and is working on a startup.",
+      "memory_type": "work",
+      "created_at": "2026-09-11T08:40:10.316Z",
+      "updated_at": "2026-09-11T08:40:10.316Z"
+    },
+    {
+      "id": "mem-test-1",
+      "user_id": "usr-testuser-002",
+      "memory_key": "identity",
+      "memory_value": "Test User is a student living in Delhi, India.",
+      "memory_type": "identity",
+      "created_at": "2026-09-11T08:40:10.316Z",
+      "updated_at": "2026-09-11T08:40:10.316Z"
+    },
+    {
+      "id": "mem-test-2",
+      "user_id": "usr-testuser-002",
+      "memory_key": "education",
+      "memory_value": "Test User is currently studying computer science.",
+      "memory_type": "work",
+      "created_at": "2026-09-11T08:40:10.316Z",
+      "updated_at": "2026-09-11T08:40:10.316Z"
+    },
+    {
+      "id": "mem-1789116010326-6428c48e",
+      "user_id": "usr-1789116010326-75279d1d",
+      "memory_key": "owner_identity",
+      "memory_value": "Anurag Sharma is the owner and companion of Tia.",
+      "memory_type": "identity",
+      "created_at": "2026-09-11T08:40:10.326Z",
+      "updated_at": "2026-09-11T08:40:10.326Z"
+    },
+    {
+      "id": "mem-1789116010327-fc008a7a",
+      "user_id": "usr-1789116010326-75279d1d",
+      "memory_key": "location",
+      "memory_value": "Anurag Sharma lives in Patna, Bihar.",
+      "memory_type": "personal",
+      "created_at": "2026-09-11T08:40:10.327Z",
+      "updated_at": "2026-09-11T08:40:10.327Z"
+    },
+    {
+      "id": "mem-1789116010327-94e10eca",
+      "user_id": "usr-1789116010326-75279d1d",
+      "memory_key": "occupation",
+      "memory_value": "Anurag Sharma is currently Founder & AI Engineer.",
+      "memory_type": "work",
+      "created_at": "2026-09-11T08:40:10.327Z",
+      "updated_at": "2026-09-11T08:40:10.327Z"
+    },
+    {
+      "id": "mem-1789116010359-4a6d9a09",
+      "user_id": "usr-1789116010326-75279d1d",
+      "memory_key": "anurag_is_building_a",
+      "memory_value": "Anurag is building a high-speed robotics startup in Patna.",
+      "memory_type": "work",
+      "created_at": "2026-09-11T08:40:10.359Z",
+      "updated_at": "2026-09-11T08:40:10.359Z"
+    },
+    {
+      "id": "mem-1789116010374-ce262618",
+      "user_id": "usr-1789116010374-53da92b6",
+      "memory_key": "owner_identity",
+      "memory_value": "Rahul Verma is the owner and companion of Tia.",
+      "memory_type": "identity",
+      "created_at": "2026-09-11T08:40:10.374Z",
+      "updated_at": "2026-09-11T08:40:10.374Z"
+    },
+    {
+      "id": "mem-1789116010375-5c690b4a",
+      "user_id": "usr-1789116010374-53da92b6",
+      "memory_key": "location",
+      "memory_value": "Rahul Verma lives in Bengaluru, Karnataka.",
+      "memory_type": "personal",
+      "created_at": "2026-09-11T08:40:10.375Z",
+      "updated_at": "2026-09-11T08:40:10.375Z"
+    },
+    {
+      "id": "mem-1789116010375-6992677d",
+      "user_id": "usr-1789116010374-53da92b6",
+      "memory_key": "occupation",
+      "memory_value": "Rahul Verma is currently Design Lead.",
+      "memory_type": "work",
+      "created_at": "2026-09-11T08:40:10.375Z",
+      "updated_at": "2026-09-11T08:40:10.375Z"
+    }
+  ],
+  "sessions": [
+    {
+      "token": "22a49bc6228cf55ecab62e6397a55bd4ee21fcbb7a6793979c1cfb157d16613c",
+      "user_id": "usr-1789116010326-75279d1d",
+      "created_at": "2026-09-11T08:40:10.327Z",
+      "expires_at": "2026-10-11T08:40:10.327Z"
+    },
+    {
+      "token": "f9653842a859d8135645cdc83b058432091bee194d95ac9a361953497474e796",
+      "user_id": "usr-1789116010326-75279d1d",
+      "created_at": "2026-09-11T08:40:10.350Z",
+      "expires_at": "2026-10-11T08:40:10.350Z"
+    },
+    {
+      "token": "d2142590133c88fc71d1088cd6d8dda7b4fd189376f6bd508d455fbaf3837799",
+      "user_id": "usr-1789116010374-53da92b6",
+      "created_at": "2026-09-11T08:40:10.375Z",
+      "expires_at": "2026-10-11T08:40:10.375Z"
+    },
+    {
+      "token": "761fa1dd7cd25edbd43d23cad45c32527333bd86119ea08208b75ecca6391e51",
+      "user_id": "usr-1789116010326-75279d1d",
+      "created_at": "2026-09-11T08:40:10.422Z",
+      "expires_at": "2026-10-11T08:40:10.422Z"
+    }
+  ],
+  "conversations": []
+}
