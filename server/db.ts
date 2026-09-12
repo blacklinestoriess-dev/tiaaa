@@ -4,9 +4,12 @@ import crypto from 'crypto';
 
 export interface UserRecord {
   id: string;
-  phone_number: string;
+  username: string;
+  password_hash: string;
+  salt: string;
   created_at: string;
   updated_at: string;
+  phone_number?: string;
   supabase_id?: string;
 }
 
@@ -14,13 +17,16 @@ export interface ProfileRecord {
   id: string;
   user_id: string;
   full_name: string;
-  phone_number: string;
+  username: string;
   date_of_birth: string; // YYYY-MM-DD
-  address: string; // Location / City
+  location: string; // Location / City
+  current_work: string; // Current Work / Role
   age: number; // Dynamically calculated from date_of_birth
+  address?: string; // Compatibility alias for location
+  occupation_status?: string; // Compatibility alias for current_work
   gender?: string;
+  phone_number?: string;
   profile_picture?: string;
-  occupation_status?: string; // Current Work / Role
   created_at: string;
   updated_at: string;
 }
@@ -80,6 +86,23 @@ export function calculateAge(dobString: string): number {
   return age >= 0 ? age : 0;
 }
 
+// Secure Salted Password Hashing using PBKDF2
+export function hashPassword(password: string): { hash: string; salt: string } {
+  const salt = crypto.randomBytes(16).toString('hex');
+  const hash = crypto.pbkdf2Sync(password, salt, 10000, 64, 'sha512').toString('hex');
+  return { hash, salt };
+}
+
+export function verifyPassword(password: string, hash: string, salt: string): boolean {
+  if (!password || !hash || !salt) return false;
+  try {
+    const verifyHash = crypto.pbkdf2Sync(password, salt, 10000, 64, 'sha512').toString('hex');
+    return crypto.timingSafeEqual(Buffer.from(hash, 'hex'), Buffer.from(verifyHash, 'hex'));
+  } catch {
+    return false;
+  }
+}
+
 // Database file path
 function getDbFilePath(): string {
   try {
@@ -103,19 +126,29 @@ let cachedDb: DatabaseSchema | null = null;
 // Initial Seed Data for verification and testing
 function getInitialSeedData(): DatabaseSchema {
   const anuragUserId = 'usr-anurag-001';
-  const testUserId = 'usr-testuser-002';
+  const rahulUserId = 'usr-rahul-002';
   const now = new Date().toISOString();
+
+  // Create hashed passwords for default seed accounts
+  const anuragAuth = hashPassword('password123');
+  const rahulAuth = hashPassword('password123');
 
   return {
     users: [
       {
         id: anuragUserId,
+        username: 'anurag',
+        password_hash: anuragAuth.hash,
+        salt: anuragAuth.salt,
         phone_number: '+919876543210',
         created_at: now,
         updated_at: now,
       },
       {
-        id: testUserId,
+        id: rahulUserId,
+        username: 'rahul',
+        password_hash: rahulAuth.hash,
+        salt: rahulAuth.salt,
         phone_number: '+919876543211',
         created_at: now,
         updated_at: now,
@@ -126,25 +159,31 @@ function getInitialSeedData(): DatabaseSchema {
         id: 'prof-anurag-001',
         user_id: anuragUserId,
         full_name: 'Anurag',
-        phone_number: '+919876543210',
+        username: 'anurag',
         date_of_birth: '2000-05-15',
+        location: 'Patna, India',
+        current_work: 'Startup',
         address: 'Patna, India',
-        age: calculateAge('2000-05-15'),
-        gender: 'Male',
         occupation_status: 'Startup',
+        age: calculateAge('2000-05-15'),
+        phone_number: '+919876543210',
+        gender: 'Male',
         created_at: now,
         updated_at: now,
       },
       {
-        id: 'prof-test-002',
-        user_id: testUserId,
-        full_name: 'Test User',
-        phone_number: '+919876543211',
+        id: 'prof-rahul-002',
+        user_id: rahulUserId,
+        full_name: 'Rahul',
+        username: 'rahul',
         date_of_birth: '2003-08-20',
+        location: 'Delhi, India',
+        current_work: 'Student',
         address: 'Delhi, India',
-        age: calculateAge('2003-08-20'),
-        gender: 'Female',
         occupation_status: 'Student',
+        age: calculateAge('2003-08-20'),
+        phone_number: '+919876543211',
+        gender: 'Male',
         created_at: now,
         updated_at: now,
       },
@@ -153,7 +192,7 @@ function getInitialSeedData(): DatabaseSchema {
       {
         id: 'mem-anurag-1',
         user_id: anuragUserId,
-        memory_key: 'identity',
+        memory_key: 'owner_identity',
         memory_value: 'Anurag is the creator and owner of Tia.',
         memory_type: 'identity',
         created_at: now,
@@ -162,26 +201,26 @@ function getInitialSeedData(): DatabaseSchema {
       {
         id: 'mem-anurag-2',
         user_id: anuragUserId,
-        memory_key: 'work',
+        memory_key: 'location',
         memory_value: 'Anurag lives in Patna, India and is working on a startup.',
-        memory_type: 'work',
+        memory_type: 'personal',
         created_at: now,
         updated_at: now,
       },
       {
-        id: 'mem-test-1',
-        user_id: testUserId,
-        memory_key: 'identity',
-        memory_value: 'Test User is a student living in Delhi, India.',
+        id: 'mem-rahul-1',
+        user_id: rahulUserId,
+        memory_key: 'owner_identity',
+        memory_value: 'Rahul is a student living in Delhi, India.',
         memory_type: 'identity',
         created_at: now,
         updated_at: now,
       },
       {
-        id: 'mem-test-2',
-        user_id: testUserId,
+        id: 'mem-rahul-2',
+        user_id: rahulUserId,
         memory_key: 'education',
-        memory_value: 'Test User is currently studying computer science.',
+        memory_value: 'Rahul is currently studying computer science.',
         memory_type: 'work',
         created_at: now,
         updated_at: now,
@@ -200,22 +239,76 @@ export function loadDatabase(): DatabaseSchema {
       const content = fs.readFileSync(filePath, 'utf-8');
       const parsed = JSON.parse(content);
       if (parsed && Array.isArray(parsed.users) && Array.isArray(parsed.profiles)) {
-        // Ensure every user has phone_number
+        // Migration check: ensure every user has a username & password hash
+        let modified = false;
+
+        // Ensure default demo accounts (anurag and rahul) exist for immediate testing
+        const hasAnurag = parsed.users.some((u: any) => u.username === 'anurag' || u.id === 'usr-anurag-001');
+        const hasRahul = parsed.users.some((u: any) => u.username === 'rahul' || u.id === 'usr-rahul-002');
+        if (!hasAnurag || !hasRahul) {
+          const seed = getInitialSeedData();
+          if (!hasAnurag) {
+            const anuragUser = seed.users.find((u) => u.username === 'anurag')!;
+            const anuragProf = seed.profiles.find((p) => p.username === 'anurag')!;
+            parsed.users.push(anuragUser);
+            parsed.profiles.push(anuragProf);
+            parsed.user_memories.push(...seed.user_memories.filter((m) => m.user_id === anuragUser.id));
+            modified = true;
+          }
+          if (!hasRahul) {
+            const rahulUser = seed.users.find((u) => u.username === 'rahul')!;
+            const rahulProf = seed.profiles.find((p) => p.username === 'rahul')!;
+            parsed.users.push(rahulUser);
+            parsed.profiles.push(rahulProf);
+            parsed.user_memories.push(...seed.user_memories.filter((m) => m.user_id === rahulUser.id));
+            modified = true;
+          }
+        }
         parsed.users = parsed.users.map((u: any) => {
-          if (!u.phone_number) {
-            u.phone_number = u.email === 'anurag@tia.ai' ? '+919876543210' : '+919876543211';
+          if (!u.username) {
+            u.username = u.id === 'usr-anurag-001' ? 'anurag' : (u.id === 'usr-rahul-002' ? 'rahul' : `user_${u.id.slice(-4)}`);
+            modified = true;
+          }
+          if (!u.password_hash || !u.salt) {
+            const defAuth = hashPassword('password123');
+            u.password_hash = defAuth.hash;
+            u.salt = defAuth.salt;
+            modified = true;
           }
           return u;
         });
+
         parsed.profiles = parsed.profiles.map((p: any) => {
-          if (!p.phone_number) {
-            p.phone_number = p.user_id === 'usr-anurag-001' ? '+919876543210' : '+919876543211';
+          if (!p.username) {
+            const matchedUser = parsed.users.find((u: any) => u.id === p.user_id);
+            p.username = matchedUser ? matchedUser.username : (p.full_name ? p.full_name.toLowerCase().replace(/\s+/g, '_') : 'user');
+            modified = true;
           }
+          if (!p.location && p.address) {
+            p.location = p.address;
+            modified = true;
+          }
+          if (!p.address && p.location) {
+            p.address = p.location;
+            modified = true;
+          }
+          if (!p.current_work && p.occupation_status) {
+            p.current_work = p.occupation_status;
+            modified = true;
+          }
+          if (!p.occupation_status && p.current_work) {
+            p.occupation_status = p.current_work;
+            modified = true;
+          }
+          p.age = calculateAge(p.date_of_birth);
           return p;
         });
 
         const schema = parsed as DatabaseSchema;
         cachedDb = schema;
+        if (modified) {
+          saveDatabase(schema);
+        }
         return schema;
       }
     }
@@ -256,12 +349,13 @@ export function generateId(prefix = 'id'): string {
 }
 
 // ==========================================
-// USER & PHONE LOOKUPS
+// USER & USERNAME LOOKUPS
 // ==========================================
 
-export function findUserByPhone(phone: string): { user: UserRecord; profile: ProfileRecord } | null {
+export function findUserByUsername(username: string): { user: UserRecord; profile: ProfileRecord } | null {
   const db = loadDatabase();
-  const user = db.users.find((u) => u.phone_number === phone);
+  const clean = username.trim().toLowerCase();
+  const user = db.users.find((u) => u.username?.toLowerCase() === clean);
   if (!user) return null;
 
   let profile = db.profiles.find((p) => p.user_id === user.id);
@@ -269,10 +363,13 @@ export function findUserByPhone(phone: string): { user: UserRecord; profile: Pro
     profile = {
       id: generateId('prof'),
       user_id: user.id,
-      full_name: 'Owner',
-      phone_number: user.phone_number,
+      full_name: user.username,
+      username: user.username,
       date_of_birth: '2000-01-01',
-      address: 'India',
+      location: '',
+      current_work: '',
+      address: '',
+      occupation_status: '',
       age: calculateAge('2000-01-01'),
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
@@ -284,6 +381,12 @@ export function findUserByPhone(phone: string): { user: UserRecord; profile: Pro
   }
 
   return { user, profile };
+}
+
+export function isUsernameAvailable(username: string): boolean {
+  const db = loadDatabase();
+  const clean = username.trim().toLowerCase();
+  return !db.users.some((u) => u.username?.toLowerCase() === clean);
 }
 
 export function findUserById(userId: string): { user: UserRecord; profile: ProfileRecord } | null {
@@ -296,10 +399,13 @@ export function findUserById(userId: string): { user: UserRecord; profile: Profi
     profile = {
       id: generateId('prof'),
       user_id: user.id,
-      full_name: 'Owner',
-      phone_number: user.phone_number,
+      full_name: user.username,
+      username: user.username,
       date_of_birth: '2000-01-01',
-      address: 'India',
+      location: '',
+      current_work: '',
+      address: '',
+      occupation_status: '',
       age: calculateAge('2000-01-01'),
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
@@ -313,75 +419,98 @@ export function findUserById(userId: string): { user: UserRecord; profile: Profi
   return { user, profile };
 }
 
-/**
- * Gets existing user by phone, or creates a new user and profile.
- * If user already exists, returns existing user and profile without duplicating.
- */
+// Backward-compatible phone lookup for legacy helpers
+export function findUserByPhone(phone: string): { user: UserRecord; profile: ProfileRecord } | null {
+  const db = loadDatabase();
+  const user = db.users.find((u) => u.phone_number === phone);
+  if (!user) return null;
+  return findUserById(user.id);
+}
+
 export function getOrCreateUserByPhone(
   phone: string,
-  signupData?: {
-    full_name?: string;
-    date_of_birth?: string;
-    address?: string;
-    occupation_status?: string;
-    gender?: string;
-    supabase_user_id?: string;
-  }
+  signupData?: any
 ): { user: UserRecord; profile: ProfileRecord; isNewUser: boolean } {
+  const existing = findUserByPhone(phone);
+  if (existing) {
+    return { user: existing.user, profile: existing.profile, isNewUser: false };
+  }
+  const cleanUsername = `user_${Date.now().toString().slice(-4)}`;
+  const created = createUserAccount({
+    full_name: signupData?.full_name || 'Tia Friend',
+    username: cleanUsername,
+    password: 'password123',
+    date_of_birth: signupData?.date_of_birth || '2000-01-01',
+    location: signupData?.address || signupData?.location || '',
+    current_work: signupData?.occupation_status || signupData?.current_work || '',
+  });
+  return { user: created.user as any, profile: created.profile, isNewUser: true };
+}
+
+// ==========================================
+// CREATE ACCOUNT & AUTHENTICATION
+// ==========================================
+
+export function createUserAccount(params: {
+  full_name: string;
+  username: string;
+  password: string;
+  date_of_birth: string;
+  location?: string;
+  current_work?: string;
+}): {
+  user: Omit<UserRecord, 'password_hash' | 'salt'>;
+  profile: ProfileRecord;
+  token: string;
+} {
   const db = loadDatabase();
   const now = new Date().toISOString();
 
-  // Check if user exists by phone or by supabase_user_id
-  let existingUser = db.users.find((u) => u.phone_number === phone);
-  if (!existingUser && signupData?.supabase_user_id) {
-    existingUser = db.users.find((u) => u.id === signupData.supabase_user_id || u.supabase_id === signupData.supabase_user_id);
+  const cleanName = (params.full_name || '').trim();
+  const cleanUsername = (params.username || '').trim().toLowerCase();
+  const password = params.password || '';
+  const dob = (params.date_of_birth || '').trim();
+  const cleanLocation = (params.location || '').trim();
+  const cleanWork = (params.current_work || '').trim();
+
+  // Validations
+  if (!cleanName) {
+    throw new Error('Full Name is required.');
+  }
+  if (!cleanUsername) {
+    throw new Error('Username is required.');
+  }
+  if (cleanUsername.length < 3) {
+    throw new Error('Username must be at least 3 characters long.');
+  }
+  if (!/^[a-zA-Z0-9_-]+$/.test(cleanUsername)) {
+    throw new Error('Username can only contain letters, numbers, underscores, and dashes.');
+  }
+  if (!password || password.length < 6) {
+    throw new Error('Password must be at least 6 characters long.');
+  }
+  if (!dob) {
+    throw new Error('Date of Birth is required.');
   }
 
+  // Check username uniqueness (case-insensitive)
+  const existingUser = db.users.find(
+    (u) => u.username?.toLowerCase() === cleanUsername
+  );
   if (existingUser) {
-    let profile = db.profiles.find((p) => p.user_id === existingUser!.id);
-    if (!profile) {
-      profile = {
-        id: generateId('prof'),
-        user_id: existingUser.id,
-        full_name: signupData?.full_name?.trim() || 'Owner',
-        phone_number: phone,
-        date_of_birth: signupData?.date_of_birth || '2000-01-01',
-        address: signupData?.address?.trim() || 'India',
-        age: calculateAge(signupData?.date_of_birth || '2000-01-01'),
-        gender: signupData?.gender || 'unspecified',
-        occupation_status: signupData?.occupation_status?.trim() || 'Explorer',
-        created_at: now,
-        updated_at: now,
-      };
-      db.profiles.push(profile);
-      saveDatabase(db);
-    } else {
-      // If user had existing profile but supplied newer info during signup, update it
-      if (signupData?.full_name) profile.full_name = signupData.full_name.trim();
-      if (signupData?.date_of_birth) {
-        profile.date_of_birth = signupData.date_of_birth;
-        profile.age = calculateAge(signupData.date_of_birth);
-      }
-      if (signupData?.address) profile.address = signupData.address.trim();
-      if (signupData?.occupation_status) profile.occupation_status = signupData.occupation_status.trim();
-      profile.phone_number = phone;
-      profile.updated_at = now;
-      saveDatabase(db);
-    }
-
-    return { user: existingUser, profile, isNewUser: false };
+    throw new Error('This username is already taken. Please choose another username.');
   }
 
-  // Create new user
-  const userId = signupData?.supabase_user_id || generateId('usr');
+  // Hash password
+  const { hash, salt } = hashPassword(password);
+  const userId = generateId('usr');
   const profileId = generateId('prof');
-  const dob = signupData?.date_of_birth || '2000-01-01';
-  const cleanName = signupData?.full_name?.trim() || 'Owner';
 
   const newUser: UserRecord = {
     id: userId,
-    phone_number: phone,
-    supabase_id: signupData?.supabase_user_id,
+    username: cleanUsername,
+    password_hash: hash,
+    salt,
     created_at: now,
     updated_at: now,
   };
@@ -390,12 +519,13 @@ export function getOrCreateUserByPhone(
     id: profileId,
     user_id: userId,
     full_name: cleanName,
-    phone_number: phone,
+    username: cleanUsername,
     date_of_birth: dob,
-    address: signupData?.address?.trim() || '',
+    location: cleanLocation,
+    current_work: cleanWork,
+    address: cleanLocation,
+    occupation_status: cleanWork,
     age: calculateAge(dob),
-    gender: signupData?.gender || 'unspecified',
-    occupation_status: signupData?.occupation_status?.trim() || 'Explorer',
     created_at: now,
     updated_at: now,
   };
@@ -404,35 +534,117 @@ export function getOrCreateUserByPhone(
   db.profiles.push(newProfile);
   saveDatabase(db);
 
-  // Seed initial user memories
+  // Private Tia memory setup strictly linked to this user's userId
   addUserMemory(
     userId,
     `${cleanName} is the owner and companion of Tia.`,
     'identity',
     'owner_identity'
   );
-  if (signupData?.address?.trim()) {
+
+  if (cleanLocation) {
     addUserMemory(
       userId,
-      `${cleanName} lives in ${signupData.address.trim()}.`,
+      `${cleanName} lives in ${cleanLocation}.`,
       'personal',
       'location'
     );
   }
-  if (signupData?.occupation_status?.trim()) {
+
+  if (cleanWork) {
     addUserMemory(
       userId,
-      `${cleanName} is currently ${signupData.occupation_status.trim()}.`,
+      `${cleanName}'s current work is ${cleanWork}.`,
       'work',
       'occupation'
     );
   }
 
-  return { user: newUser, profile: newProfile, isNewUser: true };
+  // Create active session
+  const token = createUserSession(userId);
+
+  return {
+    user: {
+      id: newUser.id,
+      username: newUser.username,
+      created_at: newUser.created_at,
+      updated_at: newUser.updated_at,
+    },
+    profile: newProfile,
+    token,
+  };
+}
+
+export function loginUser(
+  usernameInput: string,
+  passwordInput: string
+): {
+  user: Omit<UserRecord, 'password_hash' | 'salt'>;
+  profile: ProfileRecord;
+  memories: UserMemoryRecord[];
+  token: string;
+} {
+  const db = loadDatabase();
+  const cleanUsername = (usernameInput || '').trim().toLowerCase();
+
+  if (!cleanUsername || !passwordInput) {
+    throw new Error('Please enter both username and password.');
+  }
+
+  const user = db.users.find(
+    (u) => u.username?.toLowerCase() === cleanUsername
+  );
+  if (!user) {
+    throw new Error('Invalid username or password.');
+  }
+
+  const isValid = verifyPassword(passwordInput, user.password_hash, user.salt);
+  if (!isValid) {
+    throw new Error('Invalid username or password.');
+  }
+
+  let profile = db.profiles.find((p) => p.user_id === user.id);
+  const now = new Date().toISOString();
+
+  if (!profile) {
+    profile = {
+      id: generateId('prof'),
+      user_id: user.id,
+      full_name: user.username,
+      username: user.username,
+      date_of_birth: '2000-01-01',
+      location: '',
+      current_work: '',
+      address: '',
+      occupation_status: '',
+      age: calculateAge('2000-01-01'),
+      created_at: now,
+      updated_at: now,
+    };
+    db.profiles.push(profile);
+    saveDatabase(db);
+  } else {
+    profile.age = calculateAge(profile.date_of_birth);
+  }
+
+  const token = createUserSession(user.id);
+  const memories = getUserMemories(user.id);
+
+  return {
+    user: {
+      id: user.id,
+      username: user.username,
+      created_at: user.created_at,
+      updated_at: user.updated_at,
+    },
+    profile,
+    memories,
+    token,
+  };
 }
 
 // ==========================================
-// AUTHENTICATION & ROW-LEVEL SECURITY (RLS)
+// SESSIONS & ROW-LEVEL ISOLATION
 // ==========================================
 
 export function createUserSession(userId: string): string {
@@ -441,6 +653,7 @@ export function createUserSession(userId: string): string {
   const now = new Date();
   const expiresAt = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000); // 30-day session
 
+  // Purge expired sessions
   db.sessions = db.sessions.filter((s) => new Date(s.expires_at) > now);
   db.sessions.push({
     token,
@@ -453,7 +666,9 @@ export function createUserSession(userId: string): string {
   return token;
 }
 
-export function getUserByToken(token: string): { user: UserRecord; profile: ProfileRecord } | null {
+export function getUserByToken(
+  token: string
+): { user: Omit<UserRecord, 'password_hash' | 'salt'>; profile: ProfileRecord } | null {
   if (!token) return null;
   const db = loadDatabase();
   const now = new Date();
@@ -471,10 +686,13 @@ export function getUserByToken(token: string): { user: UserRecord; profile: Prof
     profile = {
       id: generateId('prof'),
       user_id: user.id,
-      full_name: 'Owner',
-      phone_number: user.phone_number,
+      full_name: user.username,
+      username: user.username,
       date_of_birth: '2000-01-01',
-      address: 'India',
+      location: '',
+      current_work: '',
+      address: '',
+      occupation_status: '',
       age: calculateAge('2000-01-01'),
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
@@ -485,7 +703,16 @@ export function getUserByToken(token: string): { user: UserRecord; profile: Prof
     profile.age = calculateAge(profile.date_of_birth);
   }
 
-  return { user, profile };
+  // Safe projection without passwords or salts
+  const safeUser: Omit<UserRecord, 'password_hash' | 'salt'> = {
+    id: user.id,
+    username: user.username,
+    created_at: user.created_at,
+    updated_at: user.updated_at,
+    phone_number: user.phone_number,
+  };
+
+  return { user: safeUser, profile };
 }
 
 export function destroyUserSession(token: string): boolean {
@@ -579,10 +806,24 @@ export function updateUserProfile(
     profile.date_of_birth = updates.date_of_birth;
     profile.age = calculateAge(updates.date_of_birth);
   }
-  if (updates.address !== undefined) profile.address = updates.address.trim();
+  if (updates.location !== undefined) {
+    profile.location = updates.location.trim();
+    profile.address = updates.location.trim();
+  }
+  if (updates.address !== undefined) {
+    profile.location = updates.address.trim();
+    profile.address = updates.address.trim();
+  }
+  if (updates.current_work !== undefined) {
+    profile.current_work = updates.current_work.trim();
+    profile.occupation_status = updates.current_work.trim();
+  }
+  if (updates.occupation_status !== undefined) {
+    profile.current_work = updates.occupation_status.trim();
+    profile.occupation_status = updates.occupation_status.trim();
+  }
   if (updates.gender !== undefined) profile.gender = updates.gender;
   if (updates.profile_picture !== undefined) profile.profile_picture = updates.profile_picture;
-  if (updates.occupation_status !== undefined) profile.occupation_status = updates.occupation_status.trim();
   if (updates.phone_number !== undefined) profile.phone_number = updates.phone_number.trim();
 
   profile.updated_at = new Date().toISOString();
@@ -634,3 +875,4 @@ export function clearUserConversation(userId: string): boolean {
   }
   return false;
 }
+

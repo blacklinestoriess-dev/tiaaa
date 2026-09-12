@@ -7,7 +7,8 @@
       "salt": "8a7b9c1d2e3f4a5b6c7d8e9f0a1b2c3d",
       "created_at": "2026-09-11T08:40:10.316Z",
       "updated_at": "2026-09-11T08:40:10.316Z",
-      "phone_number": "+919876543210"
+      "phone_number": "+919876543210",
+      "username": "anurag"
     },
     {
       "id": "usr-testuser-002",
@@ -16,7 +17,25 @@
       "salt": "1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d",
       "created_at": "2026-09-11T08:40:10.316Z",
       "updated_at": "2026-09-11T08:40:10.316Z",
-      "phone_number": "+919876543211"
+      "phone_number": "+919876543211",
+      "username": "user_-002"
+    },
+    {
+      "id": "usr-rahul-002",
+      "username": "rahul",
+      "password_hash": "fec56828b4b01f04ce4f657e3ed8469e12112af427622b98e16cd91f3403addc9a545caab19649692d586db330cecc44bfc1f604c4e22ebbaffce41c0e039574",
+      "salt": "a0e349b04ae31c40949ab095b3018e99",
+      "phone_number": "+919876543211",
+      "created_at": "2026-09-12T08:47:48.277Z",
+      "updated_at": "2026-09-12T08:47:48.277Z"
+    },
+    {
+      "id": "usr-1789202868341-e035e89a",
+      "username": "user_1789202868327",
+      "password_hash": "c07828c2e8f27f2d753c538642c35b4ce61ec497a34ebb8f1d5e89f25473d4a6ddadcb4e8e667b1fced0d1b70b95769ee3e101a3884ad8d9c5af35bc1a3c7cbc",
+      "salt": "ec81e5acec7800aa528763c1479a159f",
+      "created_at": "2026-09-12T08:47:48.333Z",
+      "updated_at": "2026-09-12T08:47:48.333Z"
     }
   ],
   "profiles": [
@@ -31,7 +50,10 @@
       "occupation_status": "working on a startup",
       "created_at": "2026-09-11T08:40:10.316Z",
       "updated_at": "2026-09-11T08:40:10.316Z",
-      "phone_number": "+919876543210"
+      "phone_number": "+919876543210",
+      "username": "anurag",
+      "location": "Patna, India",
+      "current_work": "working on a startup"
     },
     {
       "id": "prof-test-002",
@@ -44,7 +66,40 @@
       "occupation_status": "Student",
       "created_at": "2026-09-11T08:40:10.316Z",
       "updated_at": "2026-09-11T08:40:10.316Z",
-      "phone_number": "+919876543211"
+      "phone_number": "+919876543211",
+      "username": "user_-002",
+      "location": "Delhi, India",
+      "current_work": "Student"
+    },
+    {
+      "id": "prof-rahul-002",
+      "user_id": "usr-rahul-002",
+      "full_name": "Rahul",
+      "username": "rahul",
+      "date_of_birth": "2003-08-20",
+      "location": "Delhi, India",
+      "current_work": "Student",
+      "address": "Delhi, India",
+      "occupation_status": "Student",
+      "age": 23,
+      "phone_number": "+919876543211",
+      "gender": "Male",
+      "created_at": "2026-09-12T08:47:48.277Z",
+      "updated_at": "2026-09-12T08:47:48.277Z"
+    },
+    {
+      "id": "prof-1789202868341-f4b291e2",
+      "user_id": "usr-1789202868341-e035e89a",
+      "full_name": "Neha Gupta",
+      "username": "user_1789202868327",
+      "date_of_birth": "1997-11-25",
+      "location": "Pune, India",
+      "current_work": "Data Scientist",
+      "address": "Pune, India",
+      "occupation_status": "Data Scientist",
+      "age": 28,
+      "created_at": "2026-09-12T08:47:48.333Z",
+      "updated_at": "2026-09-12T08:47:48.333Z"
     }
   ],
   "user_memories": [
@@ -209,6 +264,51 @@
       "memory_type": "work",
       "created_at": "2026-09-11T08:56:32.167Z",
       "updated_at": "2026-09-11T08:56:32.167Z"
+    },
+    {
+      "id": "mem-rahul-1",
+      "user_id": "usr-rahul-002",
+      "memory_key": "owner_identity",
+      "memory_value": "Rahul is a student living in Delhi, India.",
+      "memory_type": "identity",
+      "created_at": "2026-09-12T08:47:48.277Z",
+      "updated_at": "2026-09-12T08:47:48.277Z"
+    },
+    {
+      "id": "mem-rahul-2",
+      "user_id": "usr-rahul-002",
+      "memory_key": "education",
+      "memory_value": "Rahul is currently studying computer science.",
+      "memory_type": "work",
+      "created_at": "2026-09-12T08:47:48.277Z",
+      "updated_at": "2026-09-12T08:47:48.277Z"
+    },
+    {
+      "id": "mem-1789202868342-3ad947d6",
+      "user_id": "usr-1789202868341-e035e89a",
+      "memory_key": "owner_identity",
+      "memory_value": "Neha Gupta is the owner and companion of Tia.",
+      "memory_type": "identity",
+      "created_at": "2026-09-12T08:47:48.342Z",
+      "updated_at": "2026-09-12T08:47:48.342Z"
+    },
+    {
+      "id": "mem-1789202868343-754c7c43",
+      "user_id": "usr-1789202868341-e035e89a",
+      "memory_key": "location",
+      "memory_value": "Neha Gupta lives in Pune, India.",
+      "memory_type": "personal",
+      "created_at": "2026-09-12T08:47:48.343Z",
+      "updated_at": "2026-09-12T08:47:48.343Z"
+    },
+    {
+      "id": "mem-1789202868343-d2bf2f8a",
+      "user_id": "usr-1789202868341-e035e89a",
+      "memory_key": "occupation",
+      "memory_value": "Neha Gupta's current work is Data Scientist.",
+      "memory_type": "work",
+      "created_at": "2026-09-12T08:47:48.343Z",
+      "updated_at": "2026-09-12T08:47:48.343Z"
     }
   ],
   "sessions": [
@@ -277,6 +377,30 @@
       "user_id": "usr-testuser-002",
       "created_at": "2026-09-11T09:30:39.435Z",
       "expires_at": "2026-10-11T09:30:39.435Z"
+    },
+    {
+      "token": "aff1f3600325fae203b093e72a0dbacb5a10e51d223aa75fb9064d329351b35a",
+      "user_id": "usr-anurag-001",
+      "created_at": "2026-09-12T08:47:19.245Z",
+      "expires_at": "2026-10-12T08:47:19.245Z"
+    },
+    {
+      "token": "a8fd9d176f4aa97a65dec5e929e106b8e2e44065c7effa131938737836bcf9b3",
+      "user_id": "usr-anurag-001",
+      "created_at": "2026-09-12T08:47:48.309Z",
+      "expires_at": "2026-10-12T08:47:48.309Z"
+    },
+    {
+      "token": "531ea7c94e15594b97640dac5fcf4587c733d0719b3430303250276f9bc34824",
+      "user_id": "usr-rahul-002",
+      "created_at": "2026-09-12T08:47:48.324Z",
+      "expires_at": "2026-10-12T08:47:48.324Z"
+    },
+    {
+      "token": "c03f09f40aeb1db3e6c5467a4fca12cd0b470c192b6b6ebd242d275fac927a49",
+      "user_id": "usr-1789202868341-e035e89a",
+      "created_at": "2026-09-12T08:47:48.344Z",
+      "expires_at": "2026-10-12T08:47:48.344Z"
     }
   ],
   "conversations": [

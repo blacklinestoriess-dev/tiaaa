@@ -128,8 +128,8 @@ export default function App() {
           const mappedOwner: OwnerProfile = {
             name: data.profile.full_name || 'Owner',
             relationship: 'owner',
-            location: data.profile.address || '',
-            occupation_status: data.profile.occupation_status || 'Explorer',
+            location: data.profile.location || data.profile.address || '',
+            occupation_status: data.profile.current_work || data.profile.occupation_status || 'Explorer',
             personality_traits: ['intelligent', 'curious', 'ambitious'],
             additional_memories: (data.memories || []).map((m: any) => ({
               id: m.id,
@@ -264,12 +264,12 @@ export default function App() {
       document.documentElement.classList.remove('dark');
       document.body.className = authSession
         ? 'bg-slate-100 text-slate-900 antialiased overflow-hidden select-none'
-        : 'bg-slate-100 text-slate-900 antialiased';
+        : 'bg-slate-100 text-slate-900 antialiased min-h-screen overflow-y-auto';
     } else {
       document.documentElement.classList.add('dark');
       document.body.className = authSession
         ? 'bg-[#0b0f19] text-slate-100 antialiased overflow-hidden select-none'
-        : 'bg-[#0b0f19] text-slate-100 antialiased';
+        : 'bg-[#0b0f19] text-slate-100 antialiased min-h-screen overflow-y-auto';
     }
   }, [settings.theme, !!authSession]);
 
@@ -1180,8 +1180,8 @@ export default function App() {
       const mappedOwner: OwnerProfile = {
         name: session.profile.full_name || 'Owner',
         relationship: 'owner',
-        location: session.profile.address || '',
-        occupation_status: session.profile.occupation_status || 'Explorer',
+        location: session.profile.location || session.profile.address || '',
+        occupation_status: session.profile.current_work || session.profile.occupation_status || 'Explorer',
         personality_traits: ['intelligent', 'curious', 'ambitious'],
         additional_memories: [],
         last_updated: new Date().toISOString(),

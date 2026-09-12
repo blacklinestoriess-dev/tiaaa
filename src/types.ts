@@ -76,13 +76,16 @@ export interface UserProfile {
   id: string;
   user_id: string;
   full_name: string;
-  phone_number: string;
+  username: string;
   date_of_birth: string; // YYYY-MM-DD
-  address: string;
+  location: string; // Location / City
+  current_work: string; // Current Work / Role
   age: number; // Dynamically calculated from date_of_birth
+  address?: string; // Compatibility alias for location
+  occupation_status?: string; // Compatibility alias for current_work
+  phone_number?: string;
   gender?: string;
   profile_picture?: string;
-  occupation_status?: string;
   created_at: string;
   updated_at: string;
 }
@@ -101,9 +104,12 @@ export interface UserMemory {
 // Authenticated User Identity
 export interface AuthUser {
   id: string;
-  phone_number: string;
+  username: string;
+  phone_number?: string;
   email?: string;
   supabase_id?: string;
+  created_at?: string;
+  updated_at?: string;
 }
 
 // Active Authentication Session

@@ -240,13 +240,22 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               <div className="grid grid-cols-2 gap-2 text-xs pt-1">
                 <div className="p-2.5 rounded-xl bg-black/20 border border-white/5 space-y-0.5">
                   <span className="text-[10px] text-slate-400 uppercase font-semibold tracking-wider">
-                    Owner Name
+                    Full Name
                   </span>
-                  <div className="font-semibold flex items-center space-x-1.5">
+                  <div className="font-semibold flex items-center space-x-1.5 truncate">
                     <span>{userProfile?.full_name || ownerProfile?.name || 'Owner'}</span>
                     <span className="text-[9px] px-1.5 py-0.2 bg-rose-500/20 text-rose-300 rounded font-medium">
                       Owner
                     </span>
+                  </div>
+                </div>
+
+                <div className="p-2.5 rounded-xl bg-black/20 border border-white/5 space-y-0.5">
+                  <span className="text-[10px] text-slate-400 uppercase font-semibold tracking-wider">
+                    Username
+                  </span>
+                  <div className="font-semibold text-rose-400 truncate">
+                    @{userProfile?.username || 'user'}
                   </div>
                 </div>
 
@@ -266,35 +275,22 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 <div className="p-2.5 rounded-xl bg-black/20 border border-white/5 space-y-0.5">
                   <span className="text-[10px] text-slate-400 uppercase font-semibold tracking-wider flex items-center space-x-1">
                     <MapPin className="w-2.5 h-2.5 text-rose-400" />
-                    <span>Address / City</span>
+                    <span>Location / City</span>
                   </span>
                   <div className="font-semibold truncate">
-                    {userProfile?.address || ownerProfile?.location || 'India'}
+                    {userProfile?.location || userProfile?.address || ownerProfile?.location || 'India'}
                   </div>
                 </div>
 
-                <div className="p-2.5 rounded-xl bg-black/20 border border-white/5 space-y-0.5">
+                <div className="p-2.5 rounded-xl bg-black/20 border border-white/5 col-span-2 space-y-0.5">
                   <span className="text-[10px] text-slate-400 uppercase font-semibold tracking-wider flex items-center space-x-1">
                     <Briefcase className="w-2.5 h-2.5 text-rose-400" />
-                    <span>Current Work</span>
+                    <span>Current Work / Role</span>
                   </span>
                   <div className="font-semibold truncate">
-                    {userProfile?.occupation_status || ownerProfile?.occupation_status || 'Working on goals'}
+                    {userProfile?.current_work || userProfile?.occupation_status || ownerProfile?.occupation_status || 'Working on goals'}
                   </div>
                 </div>
-
-                {(authPhone || userProfile?.phone_number || authEmail) && (
-                  <div className="p-2.5 rounded-xl bg-black/20 border border-white/5 col-span-2 flex items-center justify-between text-[11px] text-slate-400">
-                    <span className="flex items-center gap-1.5 font-medium">
-                      <Phone className="w-3.5 h-3.5 text-rose-400" />
-                      <span>{authPhone || userProfile?.phone_number || authEmail}</span>
-                    </span>
-                    <span className="flex items-center gap-1 text-emerald-400 text-[10px] font-semibold bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
-                      <ShieldCheck className="w-3 h-3" />
-                      <span>Verified Phone</span>
-                    </span>
-                  </div>
-                )}
               </div>
             )}
 

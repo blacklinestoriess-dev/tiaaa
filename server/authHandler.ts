@@ -1,33 +1,12 @@
 import type { IncomingMessage, ServerResponse } from 'http';
 import {
-  createUserSession,
+  createUserAccount,
+  loginUser,
+  isUsernameAvailable,
   getUserByToken,
   destroyUserSession,
   getUserMemories,
-  getOrCreateUserByPhone,
-  findUserByPhone,
-  calculateAge,
-  type ProfileRecord,
 } from './db.ts';
-import { validateIndianPhone } from './phoneUtils.ts';
-import { getSupabase, sendPhoneOtp, verifyPhoneOtp } from './supabaseClient.ts';
-
-// In-memory cache for pending signup requests awaiting OTP verification
-interface PendingRegistration {
-  phone: string;
-  fullName: string;
-  dob: string;
-  address: string;
-  occupation: string;
-  gender: string;
-  timestamp: number;
-}
-
-const pendingRegistrations = new Map<string, PendingRegistration>();
-
-// In-memory OTP rate limiter (last requested timestamp)
-const otpCooldowns = new Map<string, number>();
-const OTP_COOLDOWN_SECONDS = 30;
 
 function sendJson(res: ServerResponse, statusCode: number, data: any) {
   res.statusCode = statusCode;
@@ -87,214 +66,171 @@ export async function handleAuthRequest(req: IncomingMessage, res: ServerRespons
   const url = req.url || '';
   const method = req.method?.toUpperCase();
 
-  // GET /api/auth/status -> checks configuration of Supabase
+  // GET /api/auth/status
   if (method === 'GET' && url.startsWith('/api/auth/status')) {
-    const supabase = getSupabase();
     return sendJson(res, 200, {
       success: true,
-      configured: !!supabase,
-      hasSupabaseUrl: !!(process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL),
-      provider: 'supabase',
+      provider: 'credentials',
+      status: 'ready',
     });
   }
 
-  // POST /api/auth/otp/send
-  if (method === 'POST' && url.startsWith('/api/auth/otp/send')) {
+  // GET /api/auth/check-username?username=xyz
+  if (method === 'GET' && url.startsWith('/api/auth/check-username')) {
+    try {
+      const parsedUrl = new URL(url, 'http://localhost');
+      const username = parsedUrl.searchParams.get('username') || '';
+      if (!username || username.trim().length < 3) {
+        return sendJson(res, 200, {
+          success: true,
+          available: false,
+          reason: 'Username must be at least 3 characters',
+        });
+      }
+      const available = isUsernameAvailable(username);
+      return sendJson(res, 200, {
+        success: true,
+        username: username.trim().toLowerCase(),
+        available,
+      });
+    } catch (err: any) {
+      return sendJson(res, 500, { success: false, error: err.message });
+    }
+  }
+
+  // POST /api/auth/signup
+  if (method === 'POST' && url.startsWith('/api/auth/signup')) {
     try {
       const body = await readRequestBody(req);
       const {
-        phone,
-        mode = 'login',
         full_name,
+        username,
+        password,
         date_of_birth,
-        address,
-        occupation_status,
-        gender,
+        location,
+        current_work,
+        address, // alias
+        occupation_status, // alias
       } = body;
 
-      // 1. Validate Phone Number
-      const phoneValidation = validateIndianPhone(phone);
-      if (!phoneValidation.valid || !phoneValidation.normalized) {
+      // Required field validations
+      if (!full_name || typeof full_name !== 'string' || !full_name.trim()) {
         return sendJson(res, 400, {
           success: false,
-          error: phoneValidation.error || 'Please enter a valid 10-digit Indian phone number.',
+          error: 'Full Name is required.',
         });
       }
 
-      const normalizedPhone = phoneValidation.normalized;
-      const displayPhone = phoneValidation.display || normalizedPhone;
-
-      // 2. Cooldown check
-      const lastSent = otpCooldowns.get(normalizedPhone);
-      const now = Date.now();
-      if (lastSent && now - lastSent < OTP_COOLDOWN_SECONDS * 1000) {
-        const remaining = Math.ceil((OTP_COOLDOWN_SECONDS * 1000 - (now - lastSent)) / 1000);
-        return sendJson(res, 429, {
-          success: false,
-          error: `Please wait ${remaining} seconds before requesting a new OTP.`,
-          cooldownRemaining: remaining,
-        });
-      }
-
-      // 3. Mode validations
-      if (mode === 'signup') {
-        if (!full_name || typeof full_name !== 'string' || full_name.trim().length < 2) {
-          return sendJson(res, 400, {
-            success: false,
-            error: 'Full Name is required (at least 2 characters).',
-          });
-        }
-
-        if (!date_of_birth || typeof date_of_birth !== 'string') {
-          return sendJson(res, 400, {
-            success: false,
-            error: 'Date of Birth is required (YYYY-MM-DD).',
-          });
-        }
-
-        const birthDate = new Date(date_of_birth);
-        if (isNaN(birthDate.getTime()) || birthDate > new Date()) {
-          return sendJson(res, 400, {
-            success: false,
-            error: 'Please enter a valid past Date of Birth.',
-          });
-        }
-
-        // Cache registration details pending OTP verification
-        pendingRegistrations.set(normalizedPhone, {
-          phone: normalizedPhone,
-          fullName: full_name.trim(),
-          dob: date_of_birth.trim(),
-          address: (address || '').trim(),
-          occupation: (occupation_status || 'Explorer').trim(),
-          gender: gender || 'unspecified',
-          timestamp: now,
-        });
-      }
-
-      // 4. Send real OTP via Supabase
-      const otpResult = await sendPhoneOtp(normalizedPhone);
-      if (!otpResult.success) {
+      if (!username || typeof username !== 'string' || !username.trim()) {
         return sendJson(res, 400, {
           success: false,
-          error: otpResult.error || 'Failed to send OTP SMS.',
+          error: 'Username is required.',
         });
       }
 
-      // Record timestamp for cooldown
-      otpCooldowns.set(normalizedPhone, now);
+      const cleanUsername = username.trim().toLowerCase();
+      if (cleanUsername.length < 3) {
+        return sendJson(res, 400, {
+          success: false,
+          error: 'Username must be at least 3 characters long.',
+        });
+      }
 
-      return sendJson(res, 200, {
+      if (!/^[a-zA-Z0-9_-]+$/.test(cleanUsername)) {
+        return sendJson(res, 400, {
+          success: false,
+          error: 'Username can only contain letters, numbers, underscores, and hyphens.',
+        });
+      }
+
+      if (!password || typeof password !== 'string' || password.length < 6) {
+        return sendJson(res, 400, {
+          success: false,
+          error: 'Password must be at least 6 characters long.',
+        });
+      }
+
+      if (!date_of_birth || typeof date_of_birth !== 'string' || !date_of_birth.trim()) {
+        return sendJson(res, 400, {
+          success: false,
+          error: 'Date of Birth is required.',
+        });
+      }
+
+      const birthDate = new Date(date_of_birth);
+      if (isNaN(birthDate.getTime()) || birthDate > new Date()) {
+        return sendJson(res, 400, {
+          success: false,
+          error: 'Please enter a valid past Date of Birth (YYYY-MM-DD).',
+        });
+      }
+
+      const userLoc = (location || address || '').trim();
+      const userWork = (current_work || occupation_status || '').trim();
+
+      // Create account in database
+      const result = createUserAccount({
+        full_name: full_name.trim(),
+        username: cleanUsername,
+        password,
+        date_of_birth: date_of_birth.trim(),
+        location: userLoc,
+        current_work: userWork,
+      });
+
+      const memories = getUserMemories(result.user.id);
+
+      return sendJson(res, 201, {
         success: true,
-        phone: normalizedPhone,
-        displayPhone,
-        message: `A 6-digit verification code has been sent to ${displayPhone}.`,
+        token: result.token,
+        user: result.user,
+        profile: result.profile,
+        memories,
+        message: `Welcome to Tia, ${result.profile.full_name}! Your account has been created.`,
       });
     } catch (err: any) {
-      console.error('OTP Send error:', err);
-      return sendJson(res, 500, {
+      console.error('Signup error:', err);
+      return sendJson(res, 400, {
         success: false,
-        error: err.message || 'An unexpected error occurred while sending OTP.',
+        error: err.message || 'Failed to create user account.',
       });
     }
   }
 
-  // POST /api/auth/otp/verify
-  if (method === 'POST' && url.startsWith('/api/auth/otp/verify')) {
+  // POST /api/auth/login
+  if (method === 'POST' && url.startsWith('/api/auth/login')) {
     try {
       const body = await readRequestBody(req);
-      const {
-        phone,
-        otp,
-        mode = 'login',
-        full_name,
-        date_of_birth,
-        address,
-        occupation_status,
-        gender,
-      } = body;
+      const { username, password } = body;
 
-      // 1. Validate Phone
-      const phoneValidation = validateIndianPhone(phone);
-      if (!phoneValidation.valid || !phoneValidation.normalized) {
+      if (!username || !password) {
         return sendJson(res, 400, {
           success: false,
-          error: phoneValidation.error || 'Invalid phone number.',
+          error: 'Please provide both username and password.',
         });
       }
 
-      const normalizedPhone = phoneValidation.normalized;
-
-      // 2. Validate OTP code
-      if (!otp || typeof otp !== 'string' || !/^\d{6}$/.test(otp.trim())) {
-        return sendJson(res, 400, {
-          success: false,
-          error: 'Please enter a valid 6-digit numerical verification code.',
-        });
-      }
-
-      // 3. Verify OTP via Supabase Authentication
-      const verifyResult = await verifyPhoneOtp(normalizedPhone, otp.trim());
-      if (!verifyResult.success || !verifyResult.user) {
-        return sendJson(res, 400, {
-          success: false,
-          error:
-            verifyResult.error ||
-            'Incorrect verification code. Please check the 6-digit code and try again.',
-        });
-      }
-
-      const supabaseUser = verifyResult.user;
-
-      // 4. Retrieve pending signup metadata if this was a signup
-      const pending = pendingRegistrations.get(normalizedPhone);
-      const finalName = full_name?.trim() || pending?.fullName;
-      const finalDob = date_of_birth?.trim() || pending?.dob;
-      const finalAddress = address?.trim() || pending?.address;
-      const finalOccupation = occupation_status?.trim() || pending?.occupation;
-      const finalGender = gender || pending?.gender;
-
-      // 5. Connect or create user profile in database
-      const { user, profile, isNewUser } = getOrCreateUserByPhone(normalizedPhone, {
-        full_name: finalName,
-        date_of_birth: finalDob,
-        address: finalAddress,
-        occupation_status: finalOccupation,
-        gender: finalGender,
-        supabase_user_id: supabaseUser.id,
-      });
-
-      // Clear pending signup data
-      pendingRegistrations.delete(normalizedPhone);
-
-      // 6. Create authenticated session token
-      const sessionToken = createUserSession(user.id);
+      const result = loginUser(username, password);
 
       return sendJson(res, 200, {
         success: true,
-        token: sessionToken,
-        user: {
-          id: user.id,
-          phone_number: user.phone_number,
-          supabase_id: supabaseUser.id,
-        },
-        profile,
-        isNewUser,
-        message: isNewUser
-          ? `Welcome to Tia, ${profile.full_name}! Your account is ready.`
-          : `Welcome back, ${profile.full_name}!`,
+        token: result.token,
+        user: result.user,
+        profile: result.profile,
+        memories: result.memories,
+        message: `Welcome back, ${result.profile.full_name}!`,
       });
     } catch (err: any) {
-      console.error('OTP Verify error:', err);
-      return sendJson(res, 500, {
+      console.error('Login error:', err);
+      return sendJson(res, 401, {
         success: false,
-        error: err.message || 'An unexpected error occurred while verifying OTP.',
+        error: err.message || 'Invalid username or password.',
       });
     }
   }
 
-  // GET /api/auth/me -> Returns authenticated user & profile
-  if (method === 'GET' && url.startsWith('/api/auth/me')) {
+  // GET /api/auth/me or GET /api/auth/session -> Returns authenticated user & profile
+  if (method === 'GET' && (url.startsWith('/api/auth/me') || url.startsWith('/api/auth/session'))) {
     const token = extractAuthToken(req);
     if (!token) {
       return sendJson(res, 401, { success: false, error: 'Unauthorized: Missing session token' });
@@ -312,10 +248,8 @@ export async function handleAuthRequest(req: IncomingMessage, res: ServerRespons
 
     return sendJson(res, 200, {
       success: true,
-      user: {
-        id: auth.user.id,
-        phone_number: auth.user.phone_number,
-      },
+      authenticated: true,
+      user: auth.user,
       profile: auth.profile,
       memories,
     });
@@ -332,3 +266,4 @@ export async function handleAuthRequest(req: IncomingMessage, res: ServerRespons
 
   return sendJson(res, 404, { success: false, error: 'Auth endpoint not found.' });
 }
+
