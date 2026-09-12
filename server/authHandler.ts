@@ -143,6 +143,16 @@ export async function handleAuthRequest(req: IncomingMessage, res: ServerRespons
         });
       }
 
+      // Check if username is already taken before attempting account creation
+      if (!isUsernameAvailable(cleanUsername)) {
+        return sendJson(res, 409, {
+          success: false,
+          code: 'USERNAME_TAKEN',
+          error: `The username "@${cleanUsername}" is already registered. If this is your account, please log in instead.`,
+          username: cleanUsername,
+        });
+      }
+
       if (!password || typeof password !== 'string' || password.length < 6) {
         return sendJson(res, 400, {
           success: false,
@@ -189,9 +199,11 @@ export async function handleAuthRequest(req: IncomingMessage, res: ServerRespons
         message: `Welcome to Tia, ${result.profile.full_name}! Your account has been created.`,
       });
     } catch (err: any) {
-      console.error('Signup error:', err);
-      return sendJson(res, 400, {
+      // Return 400/409 validation response without logging as an unhandled server error
+      const isTaken = err.message?.toLowerCase().includes('already taken');
+      return sendJson(res, isTaken ? 409 : 400, {
         success: false,
+        code: isTaken ? 'USERNAME_TAKEN' : 'SIGNUP_FAILED',
         error: err.message || 'Failed to create user account.',
       });
     }
@@ -221,7 +233,6 @@ export async function handleAuthRequest(req: IncomingMessage, res: ServerRespons
         message: `Welcome back, ${result.profile.full_name}!`,
       });
     } catch (err: any) {
-      console.error('Login error:', err);
       return sendJson(res, 401, {
         success: false,
         error: err.message || 'Invalid username or password.',

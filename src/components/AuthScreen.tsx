@@ -130,6 +130,11 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ isDark, onAuthSuccess })
       return;
     }
 
+    if (usernameStatus === 'taken') {
+      setErrorMessage(`The username "@${cleanUsername}" is already registered. Please choose another username or switch to Log In.`);
+      return;
+    }
+
     setLoading(true);
 
     try {
@@ -148,6 +153,10 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ isDark, onAuthSuccess })
 
       const data = await res.json();
       if (!res.ok || !data.success) {
+        if (res.status === 409 || data.code === 'USERNAME_TAKEN' || data.error?.toLowerCase().includes('already taken') || data.error?.toLowerCase().includes('already registered')) {
+          setErrorMessage(`The username "@${cleanUsername}" is already registered. If this is your account, you can log in directly.`);
+          return;
+        }
         throw new Error(data.error || 'Failed to create account. Please try again.');
       }
 
@@ -290,7 +299,23 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ isDark, onAuthSuccess })
             className="mb-5 p-4 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-400 text-sm flex items-start gap-3 shadow-sm animate-in fade-in slide-in-from-top-2"
           >
             <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />
-            <div className="flex-1 leading-relaxed">{errorMessage}</div>
+            <div className="flex-1 leading-relaxed">
+              <div>{errorMessage}</div>
+              {(errorMessage.includes('already registered') || errorMessage.includes('already taken')) && (
+                <button
+                  type="button"
+                  id="btn-switch-to-login"
+                  onClick={() => {
+                    setMode('login');
+                    setErrorMessage(null);
+                  }}
+                  className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 font-semibold text-xs border border-rose-500/30 cursor-pointer transition-colors"
+                >
+                  <LogIn className="w-3.5 h-3.5" />
+                  <span>Log in as @{username || 'user'} instead →</span>
+                </button>
+              )}
+            </div>
           </div>
         )}
 
@@ -414,7 +439,20 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ isDark, onAuthSuccess })
                       <span className="text-emerald-400 font-medium">✓ Available</span>
                     )}
                     {usernameStatus === 'taken' && (
-                      <span className="text-rose-400 font-medium">✗ Username already taken</span>
+                      <span className="inline-flex items-center gap-1.5 text-rose-400 font-medium">
+                        <span>✗ Taken</span>
+                        <button
+                          type="button"
+                          id="btn-inline-switch-to-login"
+                          onClick={() => {
+                            setMode('login');
+                            setErrorMessage(null);
+                          }}
+                          className="underline hover:text-rose-300 font-semibold cursor-pointer"
+                        >
+                          Log in instead?
+                        </button>
+                      </span>
                     )}
                   </span>
                 )}

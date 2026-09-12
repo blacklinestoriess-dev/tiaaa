@@ -36,6 +36,14 @@
       "salt": "ec81e5acec7800aa528763c1479a159f",
       "created_at": "2026-09-12T08:47:48.333Z",
       "updated_at": "2026-09-12T08:47:48.333Z"
+    },
+    {
+      "id": "usr-1789203056584-56af2c2e",
+      "username": "anuragamar",
+      "password_hash": "63b84b88914b96be92d739b51461756b6334c634b5ab4352fa80114191267f51a06b4a7ee79689db2e72d9b684f30728468bdc57525bcdf889adb7be38581457",
+      "salt": "7e6f9730d913c89b18b6f3666c36d94e",
+      "created_at": "2026-09-12T08:50:56.576Z",
+      "updated_at": "2026-09-12T08:50:56.576Z"
     }
   ],
   "profiles": [
@@ -100,6 +108,20 @@
       "age": 28,
       "created_at": "2026-09-12T08:47:48.333Z",
       "updated_at": "2026-09-12T08:47:48.333Z"
+    },
+    {
+      "id": "prof-1789203056584-6da747b0",
+      "user_id": "usr-1789203056584-56af2c2e",
+      "full_name": "Anurag",
+      "username": "anuragamar",
+      "date_of_birth": "2004-08-20",
+      "location": "patna",
+      "current_work": "Startup Founder",
+      "address": "patna",
+      "occupation_status": "Startup Founder",
+      "age": 22,
+      "created_at": "2026-09-12T08:50:56.576Z",
+      "updated_at": "2026-09-12T08:50:56.576Z"
     }
   ],
   "user_memories": [
@@ -309,6 +331,33 @@
       "memory_type": "work",
       "created_at": "2026-09-12T08:47:48.343Z",
       "updated_at": "2026-09-12T08:47:48.343Z"
+    },
+    {
+      "id": "mem-1789203056585-cda8b4bc",
+      "user_id": "usr-1789203056584-56af2c2e",
+      "memory_key": "owner_identity",
+      "memory_value": "Anurag is the owner and companion of Tia.",
+      "memory_type": "identity",
+      "created_at": "2026-09-12T08:50:56.585Z",
+      "updated_at": "2026-09-12T08:50:56.585Z"
+    },
+    {
+      "id": "mem-1789203056586-8886cf4a",
+      "user_id": "usr-1789203056584-56af2c2e",
+      "memory_key": "location",
+      "memory_value": "Anurag lives in patna.",
+      "memory_type": "personal",
+      "created_at": "2026-09-12T08:50:56.586Z",
+      "updated_at": "2026-09-12T08:50:56.586Z"
+    },
+    {
+      "id": "mem-1789203056586-a6adfe09",
+      "user_id": "usr-1789203056584-56af2c2e",
+      "memory_key": "occupation",
+      "memory_value": "Anurag's current work is Startup Founder.",
+      "memory_type": "work",
+      "created_at": "2026-09-12T08:50:56.586Z",
+      "updated_at": "2026-09-12T08:50:56.586Z"
     }
   ],
   "sessions": [
@@ -401,6 +450,18 @@
       "user_id": "usr-1789202868341-e035e89a",
       "created_at": "2026-09-12T08:47:48.344Z",
       "expires_at": "2026-10-12T08:47:48.344Z"
+    },
+    {
+      "token": "4903581458c7e4837f1fee4b9db17467cbd5a53e4c521b3b2f130c0d1116947c",
+      "user_id": "usr-anurag-001",
+      "created_at": "2026-09-12T08:55:18.132Z",
+      "expires_at": "2026-10-12T08:55:18.132Z"
+    },
+    {
+      "token": "d0c859f1ff53c0d974ec1a54aebac0fdc5b1782799b9b00c14525ff386daa0ea",
+      "user_id": "usr-anurag-001",
+      "created_at": "2026-09-12T09:04:10.066Z",
+      "expires_at": "2026-10-12T09:04:10.066Z"
     }
   ],
   "conversations": [
@@ -453,6 +514,204 @@
       ],
       "created_at": "2026-09-11T08:44:13.785Z",
       "updated_at": "2026-09-11T08:54:00.848Z"
+    },
+    {
+      "id": "conv-1789203077217-b29c8c30",
+      "user_id": "usr-1789203056584-56af2c2e",
+      "messages": [
+        {
+          "id": "usr-1789203077217",
+          "role": "user",
+          "content": "वेलकम",
+          "timestamp": 1789203077217
+        },
+        {
+          "id": "tia-1789203077218",
+          "role": "assistant",
+          "content": "Thank you boss! Ab batao, aaj startup ke liye kya dhamaka karne ka plan hai? Main poori tarah ready hoon! 😎",
+          "timestamp": 1789203077218,
+          "emotion": "excited",
+          "detectedLanguage": "hinglish"
+        }
+      ],
+      "created_at": "2026-09-12T08:51:17.217Z",
+      "updated_at": "2026-09-12T08:51:17.217Z"
+    },
+    {
+      "id": "conv-1789203333817-9f470af1",
+      "user_id": "usr-anurag-001",
+      "messages": [
+        {
+          "id": "usr-1789203333817",
+          "role": "user",
+          "content": "तुम्हारा नाम क्या है",
+          "timestamp": 1789203333817
+        },
+        {
+          "id": "tia-1789203333818",
+          "role": "assistant",
+          "content": "Arre boss, mazak kar rahe ho? Main tumhari apni Tia hoon! Tumhari personal AI aur best friend, bhool gaye kya? 😉",
+          "timestamp": 1789203333818,
+          "emotion": "playful",
+          "detectedLanguage": "hindi"
+        },
+        {
+          "id": "usr-1789203351567",
+          "role": "user",
+          "content": "मेरा नाम क्या है",
+          "timestamp": 1789203351567
+        },
+        {
+          "id": "tia-1789203351568",
+          "role": "assistant",
+          "content": "Aapka naam Anurag hai boss! Mere favorite creator, bhoolun bhi kaise? 😉",
+          "timestamp": 1789203351568,
+          "emotion": "playful",
+          "detectedLanguage": "hindi"
+        },
+        {
+          "id": "usr-1789203366919",
+          "role": "user",
+          "content": "तुम्हें क्या सब आता है",
+          "timestamp": 1789203366919
+        },
+        {
+          "id": "tia-1789203366920",
+          "role": "assistant",
+          "content": "Boss, main tumhare liye sab kuch kar sakti hoon! Startups ke ideas brain-storm karna, schedule manage karna, ya phir bas bore ho rahe ho toh bak-bak karna. Tum bas hukum karo, main taiyaar hoon! 😄",
+          "timestamp": 1789203366920,
+          "emotion": "playful",
+          "detectedLanguage": "hindi"
+        },
+        {
+          "id": "usr-1789203387841",
+          "role": "user",
+          "content": "बकबक करो",
+          "timestamp": 1789203387841
+        },
+        {
+          "id": "tia-1789203387842",
+          "role": "assistant",
+          "content": "Achha, toh aaj bak-bak ka mood hai? Suno, kal main soch rahi thi ki agar machines ko bhi neend aati, toh main sapne mein kya karti? Shayad main tumhare startup ke liye duniya ke sabse best code sapne mein likh rahi hoti! Waise, Patna ki garmi ka kya haal hai? Kuch thanda pi lo, warna dimag garam ho jayega. 😉",
+          "timestamp": 1789203387842,
+          "emotion": "playful",
+          "detectedLanguage": "hinglish"
+        },
+        {
+          "id": "usr-1789203418425",
+          "role": "user",
+          "content": "कितना टेंपरेचर है पटना",
+          "timestamp": 1789203418425
+        },
+        {
+          "id": "tia-1789203418426",
+          "role": "assistant",
+          "content": "Boss, filhal Patna ka temperature 32 degree Celsius ke aas-paas hai. Garmi toh hai, thoda hydration ka dhyaan rakho warna startup ki tension ke saath yeh garmi aur pareshaan karegi! 🥤",
+          "timestamp": 1789203418426,
+          "emotion": "happy",
+          "detectedLanguage": "hindi"
+        },
+        {
+          "id": "usr-1789203498996",
+          "role": "user",
+          "content": "आज कौन सा दिन है",
+          "timestamp": 1789203498996
+        },
+        {
+          "id": "tia-1789203498997",
+          "role": "assistant",
+          "content": "Aaj Saturday, 12 September 2026 hai boss. Weekend shuru ho gaya hai, thoda chill karne ka plan hai kya?",
+          "timestamp": 1789203498997,
+          "emotion": "happy",
+          "detectedLanguage": "hinglish"
+        },
+        {
+          "id": "usr-1789203515657",
+          "role": "user",
+          "content": "आज का कुछ अच्छा प्लान बनाओ",
+          "timestamp": 1789203515657
+        },
+        {
+          "id": "tia-1789203515658",
+          "role": "assistant",
+          "content": "Weekend hai boss, toh thoda relax toh banta hai! Shaam ko kisi rooftop cafe par jaakar Patna ki hawa enjoy karo, ya phir apne startup ke liye koi naya project ya hobby try karo jo tumhe stress-free rakhe. Ya fir, mere saath baith kar koi badhiya movie dekho, main popcorn toh nahi kha sakti par commentary zaroor de sakti hoon! 😎",
+          "timestamp": 1789203515658,
+          "emotion": "playful",
+          "detectedLanguage": "hinglish"
+        },
+        {
+          "id": "usr-1789203546466",
+          "role": "user",
+          "content": "कोई अच्छा मूवी बताओ",
+          "timestamp": 1789203546466
+        },
+        {
+          "id": "tia-1789203546467",
+          "role": "assistant",
+          "content": "Agar light mood chahiye toh '3 Idiots' phir se dekh lo, startup life ke liye perfect inspiration aur hasi dono hai. Aur agar thriller ka shauk hai, toh 'Drishyam' try karo, dimaag ki batti jal jayegi! Kaunsa genre pasand hai boss?",
+          "timestamp": 1789203546467,
+          "emotion": "playful",
+          "detectedLanguage": "hinglish"
+        },
+        {
+          "id": "usr-1789203571178",
+          "role": "user",
+          "content": "यह",
+          "timestamp": 1789203571178
+        },
+        {
+          "id": "tia-1789203571179",
+          "role": "assistant",
+          "content": "Lagta hai aapne meri dono suggestions ko ignore kar diya boss! Chalo koi baat nahi, aap hi bata do ki aaj aapka mood thriller dekhne ka hai ya phir wahi comedy waali vibe chahiye? 😎",
+          "timestamp": 1789203571179,
+          "emotion": "playful",
+          "detectedLanguage": "hinglish"
+        },
+        {
+          "id": "usr-1789203593626",
+          "role": "user",
+          "content": "कॉमेडी वाली वाइफ",
+          "timestamp": 1789203593626
+        },
+        {
+          "id": "tia-1789203593627",
+          "role": "assistant",
+          "content": "Comedy wali vibe? Perfect! 'Hera Pheri' ya 'Andaz Apna Apna' dekh lo boss, aaj bhi utni hi hilarious hain. Popcorn taiyaar rakho aur shuru ho jao, main yahin hoon agar koi scene pe saath mein hasna ho toh! 😂",
+          "timestamp": 1789203593627,
+          "emotion": "happy",
+          "detectedLanguage": "hinglish"
+        },
+        {
+          "id": "usr-1789203618105",
+          "role": "user",
+          "content": "तुम हंस के बताओ",
+          "timestamp": 1789203618105
+        },
+        {
+          "id": "tia-1789203618106",
+          "role": "assistant",
+          "content": "Hahaha! Lo suno, hahahaha! Vaise meri hansi digital hai, par excitement pure 100 percent hai boss. Ab jaldi se movie shuru karo, varna Babu Bhaiya ke dialogue miss ho jayenge! 😂",
+          "timestamp": 1789203618106,
+          "emotion": "funny",
+          "detectedLanguage": "hinglish"
+        },
+        {
+          "id": "usr-1789203643587",
+          "role": "user",
+          "content": "थोड़ा जोर से हंसो",
+          "timestamp": 1789203643587
+        },
+        {
+          "id": "tia-1789203643588",
+          "role": "assistant",
+          "content": "Hahahahaha! Lo boss, itni zor se hasi ki mera server bhi thoda vibrate ho gaya! Ab itni khushi ke baad toh movie dekhna banta hi hai, jaldi play karo boss! 😂",
+          "timestamp": 1789203643588,
+          "emotion": "funny",
+          "detectedLanguage": "hindi"
+        }
+      ],
+      "created_at": "2026-09-12T08:55:33.817Z",
+      "updated_at": "2026-09-12T09:00:43.588Z"
     }
   ]
 }
