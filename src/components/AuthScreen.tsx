@@ -17,6 +17,7 @@ import {
   UserPlus,
 } from 'lucide-react';
 import type { AuthSession } from '../types';
+import { parseApiResponse } from '../utils/api';
 
 interface AuthScreenProps {
   isDark: boolean;
@@ -77,8 +78,8 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ isDark, onAuthSuccess })
     const timer = setTimeout(async () => {
       try {
         const res = await fetch(`/api/auth/check-username?username=${encodeURIComponent(clean)}`);
-        const data = await res.json();
-        if (data.success) {
+        const data = await parseApiResponse(res, '/api/auth/check-username');
+        if (data && data.success) {
           setUsernameStatus(data.available ? 'available' : 'taken');
         }
       } catch {
@@ -151,14 +152,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ isDark, onAuthSuccess })
         }),
       });
 
-      const data = await res.json();
-      if (!res.ok || !data.success) {
-        if (res.status === 409 || data.code === 'USERNAME_TAKEN' || data.error?.toLowerCase().includes('already taken') || data.error?.toLowerCase().includes('already registered')) {
-          setErrorMessage(`The username "@${cleanUsername}" is already registered. If this is your account, you can log in directly.`);
-          return;
-        }
-        throw new Error(data.error || 'Failed to create account. Please try again.');
-      }
+      const data = await parseApiResponse(res, '/api/auth/signup');
 
       // Persist session to local storage
       try {
@@ -187,7 +181,16 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ isDark, onAuthSuccess })
         isNewUser: true,
       });
     } catch (err: any) {
-      setErrorMessage(err.message || 'An error occurred during account creation.');
+      if (
+        err?.status === 409 ||
+        err?.code === 'USERNAME_TAKEN' ||
+        err?.message?.toLowerCase().includes('already registered') ||
+        err?.message?.toLowerCase().includes('already taken')
+      ) {
+        setErrorMessage(`The username "@${cleanUsername}" is already registered. If this is your account, you can log in directly.`);
+      } else {
+        setErrorMessage(err.message || 'An error occurred during account creation.');
+      }
     } finally {
       setLoading(false);
     }
@@ -223,10 +226,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ isDark, onAuthSuccess })
         }),
       });
 
-      const data = await res.json();
-      if (!res.ok || !data.success) {
-        throw new Error(data.error || 'Invalid username or password.');
-      }
+      const data = await parseApiResponse(res, '/api/auth/login');
 
       // Persist session to local storage
       try {

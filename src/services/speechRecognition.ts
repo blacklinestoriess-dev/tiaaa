@@ -56,25 +56,23 @@ export function isSpeechRecognitionSupported(): boolean {
 
 /**
  * Returns the best BCP-47 language tag for speech recognition based on user preference.
- * On Android Chrome, 'hi-IN' reliably handles both pure Hindi and Hinglish speech.
- * 'en-IN' is ideal for Indian English.
+ * 'en-IN' is ideal for Indian English, Hinglish, and wake words in Latin script ('hello tia', 'what is gdp').
+ * 'hi-IN' is used when Hindi is explicitly selected.
  */
 export function getRecognitionLanguageCode(preference: LanguagePreference): string {
   switch (preference) {
     case 'hindi':
       return 'hi-IN';
     case 'english':
-      return 'en-IN';
     case 'hinglish':
     case 'auto':
     default:
-      // hi-IN on Android Google Speech accurately recognizes mixed Hinglish and Hindi words
-      return 'hi-IN';
+      return 'en-IN';
   }
 }
 
 export interface SpeechRecognitionController {
-  start: () => void;
+  start: () => Promise<void>;
   stop: () => void;
   abort: () => void;
   abortAsync: () => Promise<void>;
@@ -93,13 +91,19 @@ export interface SpeechRecognitionCallbacks {
   onEnd?: () => void;
 }
 
+// Module-level tracker to strictly enforce ONE active recognition session across the tab
+let globalActiveController: SpeechRecognitionController | null = null;
+
 export function createSpeechRecognizer(
   langPref: LanguagePreference,
   callbacks: SpeechRecognitionCallbacks,
   options: SpeechRecognitionOptions = {}
 ): SpeechRecognitionController | null {
   if (!isSpeechRecognitionSupported()) {
-    callbacks.onError?.('Speech recognition is not supported in this browser.', 'not-supported');
+    callbacks.onError?.(
+      'Speech recognition is not supported in this browser. Please use Chrome or a Chromium browser.',
+      'not-supported'
+    );
     return null;
   }
 
@@ -115,9 +119,11 @@ export function createSpeechRecognizer(
     recognition.lang = getRecognitionLanguageCode(langPref);
 
     let isRunning = false;
+    let isAborting = false;
 
     recognition.onstart = () => {
       isRunning = true;
+      isAborting = false;
       callbacks.onStart?.();
     };
 
@@ -125,33 +131,28 @@ export function createSpeechRecognizer(
       let interim = '';
       let final = '';
 
-      for (let i = event.resultIndex; i < event.results.length; ++i) {
+      // Standard Web Speech API: accumulate all results across the session
+      for (let i = 0; i < event.results.length; ++i) {
         const item = event.results[i];
         if (item.isFinal) {
-          final += item[0].transcript;
+          final += item[0].transcript + ' ';
         } else {
           interim += item[0].transcript;
         }
       }
 
-      if (options.isWakeWordMode) {
-        // In wake word mode, evaluate the full combined utterance immediately so interim wake words trigger without latency
-        const combined = `${final} ${interim}`.trim();
-        if (combined) {
-          callbacks.onResult?.(combined, Boolean(final));
-        }
-      } else {
-        // Standard and follow-up listening mode: maintain exact existing behavior
-        if (final) {
-          callbacks.onResult?.(final.trim(), true);
-        } else if (interim) {
-          callbacks.onResult?.(interim.trim(), false);
-        }
+      const fullTranscript = `${final} ${interim}`.trim();
+      const hasFinal = Boolean(final.trim());
+
+      if (fullTranscript) {
+        callbacks.onResult?.(fullTranscript, hasFinal);
       }
     };
 
     recognition.onerror = (event: ISpeechRecognitionErrorEvent) => {
-      // In wake-word passive standby mode, 'no-speech' or 'aborted' is expected when user pauses in between utterances
+      if (isAborting) return;
+
+      // In wake-word passive standby mode, 'no-speech' or 'aborted' is expected when user pauses
       if (options.isWakeWordMode && (event.error === 'no-speech' || event.error === 'aborted')) {
         callbacks.onError?.('no-speech', event.error);
         return;
@@ -160,25 +161,40 @@ export function createSpeechRecognizer(
       let friendlyMessage = 'Microphone or speech recognition error.';
       if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
         friendlyMessage =
-          'Microphone access was denied. Please allow microphone permissions in your browser or site settings.';
+          'Microphone access was denied. Please allow microphone permissions in your browser or address bar.';
       } else if (event.error === 'no-speech') {
         friendlyMessage = "I didn't hear anything. Tap the mic and speak again!";
       } else if (event.error === 'network') {
         friendlyMessage = 'Speech recognition network error. Please check your internet connection.';
       } else if (event.error === 'audio-capture') {
         friendlyMessage = 'No microphone was detected on your device.';
+      } else if (event.error === 'aborted') {
+        friendlyMessage = 'Speech recognition was stopped.';
       }
+
       callbacks.onError?.(friendlyMessage, event.error);
     };
 
     recognition.onend = () => {
       isRunning = false;
+      isAborting = false;
       callbacks.onEnd?.();
     };
 
-    return {
-      start: () => {
+    const controller: SpeechRecognitionController = {
+      start: async () => {
         if (isRunning) return;
+
+        // Cleanly terminate any other active recognition session first
+        if (globalActiveController && globalActiveController !== controller) {
+          try {
+            await globalActiveController.abortAsync();
+          } catch {
+            // ignore
+          }
+        }
+        globalActiveController = controller;
+
         const attemptStart = (retriesLeft = 2) => {
           try {
             recognition.start();
@@ -207,6 +223,7 @@ export function createSpeechRecognizer(
       abort: () => {
         try {
           isRunning = false;
+          isAborting = true;
           recognition.abort();
         } catch {
           // ignore
@@ -218,6 +235,7 @@ export function createSpeechRecognizer(
             resolve();
             return;
           }
+          isAborting = true;
           let resolved = false;
           const finish = () => {
             if (!resolved) {
@@ -225,11 +243,12 @@ export function createSpeechRecognizer(
               resolve();
             }
           };
-          const safetyTimer = setTimeout(finish, 140);
+          const safetyTimer = setTimeout(finish, 150);
           const originalOnEnd = recognition.onend;
           recognition.onend = () => {
             clearTimeout(safetyTimer);
             isRunning = false;
+            isAborting = false;
             try {
               originalOnEnd?.call(recognition);
             } catch {
@@ -248,6 +267,8 @@ export function createSpeechRecognizer(
       },
       isStarted: () => isRunning,
     };
+
+    return controller;
   } catch (err) {
     console.error('Failed to create SpeechRecognition instance:', err);
     callbacks.onError?.('Could not initialize speech recognition.', 'init-error');

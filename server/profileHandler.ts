@@ -78,7 +78,10 @@ function authenticateRequest(req: IncomingMessage, res: ServerResponse): { userI
 }
 
 export async function handleProfileRequest(req: IncomingMessage, res: ServerResponse) {
-  const url = req.url || '';
+  const rawUrl = (req as any).originalUrl || req.url || '';
+  const parsedUrl = new URL(rawUrl.startsWith('http') ? rawUrl : `http://localhost${rawUrl.startsWith('/') ? '' : '/'}${rawUrl}`);
+  const pathname = parsedUrl.pathname;
+  const subpath = pathname.replace(/^(\/api)?\/profile/, '') || '/';
   const method = req.method?.toUpperCase();
 
   const auth = authenticateRequest(req, res);
@@ -86,31 +89,31 @@ export async function handleProfileRequest(req: IncomingMessage, res: ServerResp
 
   const { userId } = auth;
 
-  // GET /api/profile -> retrieve current user's profile and memories
-  if (method === 'GET' && (url === '/api/profile' || url.startsWith('/api/profile?'))) {
+  // GET /api/profile or / -> retrieve current user's profile and memories
+  if (method === 'GET' && (subpath === '/' || subpath === '')) {
     const profile = getUserProfile(userId);
     const memories = getUserMemories(userId);
     return sendJson(res, 200, { success: true, profile, memories });
   }
 
-  // PUT /api/profile -> update current user's profile
-  if (method === 'PUT' && (url === '/api/profile' || url.startsWith('/api/profile?'))) {
+  // PUT /api/profile or / -> update current user's profile
+  if (method === 'PUT' && (subpath === '/' || subpath === '')) {
     const body = await readRequestBody(req);
     const updated = updateUserProfile(userId, body);
     const memories = getUserMemories(userId);
     return sendJson(res, 200, { success: true, profile: updated, memories });
   }
 
-  // GET /api/profile/memories -> list only current user's memories
-  if (method === 'GET' && url.startsWith('/api/profile/memories')) {
+  // GET /api/profile/memories or /memories -> list only current user's memories
+  if (method === 'GET' && subpath === '/memories') {
     const memories = getUserMemories(userId);
     return sendJson(res, 200, { success: true, memories });
   }
 
-  // POST or PUT /api/profile/remember -> remember explicit fact for current user
+  // POST or PUT /api/profile/remember or /remember -> remember explicit fact for current user
   if (
     (method === 'POST' || method === 'PUT') &&
-    url.startsWith('/api/profile/remember')
+    subpath === '/remember'
   ) {
     const body = await readRequestBody(req);
     const fact = typeof body.fact === 'string' ? body.fact.trim() : '';
@@ -135,8 +138,8 @@ export async function handleProfileRequest(req: IncomingMessage, res: ServerResp
     });
   }
 
-  // POST /api/profile/forget -> forget memory matching text or key
-  if (method === 'POST' && url.startsWith('/api/profile/forget')) {
+  // POST /api/profile/forget or /forget -> forget memory matching text or key
+  if (method === 'POST' && subpath === '/forget') {
     const body = await readRequestBody(req);
     const query = typeof body.query === 'string' ? body.query.trim() : '';
     if (!query) {
@@ -155,11 +158,10 @@ export async function handleProfileRequest(req: IncomingMessage, res: ServerResp
     });
   }
 
-  // DELETE /api/profile/memory -> delete specific memory by ID
-  if (method === 'DELETE' && url.includes('/api/profile/memory')) {
+  // DELETE /api/profile/memory or /memory -> delete specific memory by ID
+  if (method === 'DELETE' && (subpath === '/memory' || subpath.startsWith('/memory'))) {
     let id = '';
-    const urlObj = new URL(url, 'http://localhost');
-    id = urlObj.searchParams.get('id') || '';
+    id = parsedUrl.searchParams.get('id') || '';
 
     if (!id) {
       const body = await readRequestBody(req);
@@ -167,7 +169,7 @@ export async function handleProfileRequest(req: IncomingMessage, res: ServerResp
     }
 
     if (!id) {
-      const parts = urlObj.pathname.split('/');
+      const parts = subpath.split('/');
       id = parts[parts.length - 1];
     }
 

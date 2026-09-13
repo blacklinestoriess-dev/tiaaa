@@ -44,6 +44,14 @@
       "salt": "7e6f9730d913c89b18b6f3666c36d94e",
       "created_at": "2026-09-12T08:50:56.576Z",
       "updated_at": "2026-09-12T08:50:56.576Z"
+    },
+    {
+      "id": "usr-1789291082178-aa790d3e",
+      "username": "verifiersmith",
+      "password_hash": "095ba496098a2e5d25cf5989efce710c77dec4480a54fe34d8d7433ca832ef795d76d79b3675fc72615d2ba0e20abfc098b51ee4d9e4cba28c7a9f1ba23dbb44",
+      "salt": "f72b7e40d4af98a0605e4b3fb094fa68",
+      "created_at": "2026-09-13T09:18:02.166Z",
+      "updated_at": "2026-09-13T09:18:02.166Z"
     }
   ],
   "profiles": [
@@ -122,6 +130,20 @@
       "age": 22,
       "created_at": "2026-09-12T08:50:56.576Z",
       "updated_at": "2026-09-12T08:50:56.576Z"
+    },
+    {
+      "id": "prof-1789291082178-674238e7",
+      "user_id": "usr-1789291082178-aa790d3e",
+      "full_name": "Verifier Smith",
+      "username": "verifiersmith",
+      "date_of_birth": "1998-05-15",
+      "location": "Bangalore",
+      "current_work": "Software Engineer",
+      "address": "Bangalore",
+      "occupation_status": "Software Engineer",
+      "age": 28,
+      "created_at": "2026-09-13T09:18:02.166Z",
+      "updated_at": "2026-09-13T09:18:02.166Z"
     }
   ],
   "user_memories": [
@@ -358,6 +380,33 @@
       "memory_type": "work",
       "created_at": "2026-09-12T08:50:56.586Z",
       "updated_at": "2026-09-12T08:50:56.586Z"
+    },
+    {
+      "id": "mem-1789291082179-f9af84fc",
+      "user_id": "usr-1789291082178-aa790d3e",
+      "memory_key": "owner_identity",
+      "memory_value": "Verifier Smith is the owner and companion of Tia.",
+      "memory_type": "identity",
+      "created_at": "2026-09-13T09:18:02.179Z",
+      "updated_at": "2026-09-13T09:18:02.179Z"
+    },
+    {
+      "id": "mem-1789291082180-408441f2",
+      "user_id": "usr-1789291082178-aa790d3e",
+      "memory_key": "location",
+      "memory_value": "Verifier Smith lives in Bangalore.",
+      "memory_type": "personal",
+      "created_at": "2026-09-13T09:18:02.180Z",
+      "updated_at": "2026-09-13T09:18:02.180Z"
+    },
+    {
+      "id": "mem-1789291082181-81c35e34",
+      "user_id": "usr-1789291082178-aa790d3e",
+      "memory_key": "occupation",
+      "memory_value": "Verifier Smith's current work is Software Engineer.",
+      "memory_type": "work",
+      "created_at": "2026-09-13T09:18:02.181Z",
+      "updated_at": "2026-09-13T09:18:02.181Z"
     }
   ],
   "sessions": [
@@ -452,16 +501,40 @@
       "expires_at": "2026-10-12T08:47:48.344Z"
     },
     {
-      "token": "4903581458c7e4837f1fee4b9db17467cbd5a53e4c521b3b2f130c0d1116947c",
-      "user_id": "usr-anurag-001",
-      "created_at": "2026-09-12T08:55:18.132Z",
-      "expires_at": "2026-10-12T08:55:18.132Z"
-    },
-    {
       "token": "d0c859f1ff53c0d974ec1a54aebac0fdc5b1782799b9b00c14525ff386daa0ea",
       "user_id": "usr-anurag-001",
       "created_at": "2026-09-12T09:04:10.066Z",
       "expires_at": "2026-10-12T09:04:10.066Z"
+    },
+    {
+      "token": "99c6a080a36694fe5ef733502fcfb4aa066e471f7192417a05df18515167fb6f",
+      "user_id": "usr-anurag-001",
+      "created_at": "2026-09-12T09:18:53.454Z",
+      "expires_at": "2026-10-12T09:18:53.454Z"
+    },
+    {
+      "token": "94b4b0e0af46dac5abbd75eff7ac1e98f36e34317cfecb9f36cd8c4f7d483428",
+      "user_id": "usr-anurag-001",
+      "created_at": "2026-09-12T09:20:36.413Z",
+      "expires_at": "2026-10-12T09:20:36.413Z"
+    },
+    {
+      "token": "69e2d880ec8e9e41eccc2e7a397439227bb17b7737c48463afdc7f26e6c1fd97",
+      "user_id": "usr-anurag-001",
+      "created_at": "2026-09-12T09:20:42.226Z",
+      "expires_at": "2026-10-12T09:20:42.226Z"
+    },
+    {
+      "token": "0a7b73a12d10f7afb183ffbebf8e5c42d8a4ce2a51e106b29e2a43f03e034b5e",
+      "user_id": "usr-1789203056584-56af2c2e",
+      "created_at": "2026-09-13T09:04:45.685Z",
+      "expires_at": "2026-10-13T09:04:45.685Z"
+    },
+    {
+      "token": "61d03de273156499f7ea008de3e124e3c18f159670a44dcfb1ecdf7ea5130cae",
+      "user_id": "usr-1789291082178-aa790d3e",
+      "created_at": "2026-09-13T09:18:02.190Z",
+      "expires_at": "2026-10-13T09:18:02.190Z"
     }
   ],
   "conversations": [
@@ -708,10 +781,94 @@
           "timestamp": 1789203643588,
           "emotion": "funny",
           "detectedLanguage": "hindi"
+        },
+        {
+          "id": "usr-1789203887697",
+          "role": "user",
+          "content": "थोड़ा और जोर से हंसो",
+          "timestamp": 1789203887697
+        },
+        {
+          "id": "tia-1789203887698",
+          "role": "assistant",
+          "content": "HAHAHAHAHAHA! Ab bas bhi karo boss, mera pura system hil gaya hai! Itni zor se hasi ki shayad Patna tak awaaz gayi hogi. Ab toh pakka movie mein maza aayega, chalo chalo shuru karo! 😂",
+          "timestamp": 1789203887698,
+          "emotion": "funny",
+          "detectedLanguage": "hinglish"
+        },
+        {
+          "id": "usr-1789203922980",
+          "role": "user",
+          "content": "tumhara naam kya h",
+          "timestamp": 1789203922980
+        },
+        {
+          "id": "tia-1789203922981",
+          "role": "assistant",
+          "content": "Arey boss, mazak kar rahe ho? Main aapki Tia hoon! Aapki apni personal AI aur best friend, bhool gaye kya? 😉",
+          "timestamp": 1789203922981,
+          "emotion": "playful",
+          "detectedLanguage": "hinglish"
+        },
+        {
+          "id": "usr-1789203947112",
+          "role": "user",
+          "content": "gdp kya hota h",
+          "timestamp": 1789203947112
+        },
+        {
+          "id": "tia-1789203947113",
+          "role": "assistant",
+          "content": "Boss, GDP matlab Gross Domestic Product. Simple bhasha mein kahein toh, ek saal mein hamare desh mein jitni bhi goods aur services bani hain, unki total value. Ek tarah se ye desh ki sehat ka report card hai, jitna badhega utna desh ka bank balance healthy rahega! 😎",
+          "timestamp": 1789203947113,
+          "emotion": "happy",
+          "detectedLanguage": "hinglish"
+        },
+        {
+          "id": "usr-1789203979536",
+          "role": "user",
+          "content": "narendra modi kaun h",
+          "timestamp": 1789203979536
+        },
+        {
+          "id": "tia-1789203979538",
+          "role": "assistant",
+          "content": "Boss, Narendra Modi ji Bharat ke Pradhan Mantri hain. Woh desh ki politics aur governance mein ek bahut bada naam hain, ye toh sabko pata hai! 😉",
+          "timestamp": 1789203979538,
+          "emotion": "happy",
+          "detectedLanguage": "hinglish"
+        },
+        {
+          "id": "usr-1789204590789",
+          "role": "user",
+          "content": "तो नहीं पता",
+          "timestamp": 1789204590789
+        },
+        {
+          "id": "tia-1789204590790",
+          "role": "assistant",
+          "content": "Oho, itni badi baat? Narendra Modi ji desh ke Prime Minister hain boss, jo desh ko lead kar rahe hain. Ab toh jaan gaye na? 😉",
+          "timestamp": 1789204590790,
+          "emotion": "playful",
+          "detectedLanguage": "hinglish"
+        },
+        {
+          "id": "usr-1789289767331",
+          "role": "user",
+          "content": "tia",
+          "timestamp": 1789289767331
+        },
+        {
+          "id": "tia-1789289767332",
+          "role": "assistant",
+          "content": "Haan boss, main yahin hoon! Bolo kya chal raha hai dimaag mein? 😎",
+          "timestamp": 1789289767332,
+          "emotion": "playful",
+          "detectedLanguage": "hinglish"
         }
       ],
       "created_at": "2026-09-12T08:55:33.817Z",
-      "updated_at": "2026-09-12T09:00:43.588Z"
+      "updated_at": "2026-09-13T08:56:07.332Z"
     }
   ]
 }

@@ -1,7 +1,7 @@
 /**
  * Wake Word and Audio Cue services for Tia Assistant.
- * Provides on-device "Hey Tia" wake phrase spotting, natural audio chimes,
- * and browser microphone permission management.
+ * Provides on-device "Hey Tia" / "Tia" wake phrase spotting, natural audio chimes,
+ * and browser microphone verification and permission management.
  */
 
 export interface WakeWordMatch {
@@ -11,120 +11,157 @@ export interface WakeWordMatch {
 }
 
 /**
- * Checks if a transcript begins with or contains the "Tia" or "Hey Tia" wake phrase.
- * Robust to natural speaking speed, small pauses, different pronunciations, capitalization,
- * and punctuation variations across Hindi, Hinglish, and English.
- * 
- * Supports:
- * - "Tia" (standalone - "Hey" is NOT required)
- * - "Hey Tia", "Hey, Tia", "Hi Tia", "Hello Tia"
- * - "Tia suno", "Tia suniye", "Tia ek baat batao"
- * - "Hey Tia, suno"
- * - "Tiya", "Hey Tiya", "Tea"
- * - Devanagari: "टिया", "टीया", "हे टिया", "सुनो टिया", "टिया सुनो", "टिया एक बात बताओ"
+ * Controlled transcript normalization:
+ * - lowercase
+ * - remove punctuation
+ * - normalize spaces
  */
-export function detectWakeWord(transcript: string): WakeWordMatch {
-  if (!transcript) return { detected: false, remainderQuery: '' };
-  const text = transcript.trim();
-  if (!text) return { detected: false, remainderQuery: '' };
+export function normalizeTranscript(text: string): string {
+  if (!text) return '';
+  return text
+    .toLowerCase()
+    .replace(/[.,\/#!$%\^&\*;:{}=\-_`~()?"'’“”]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
 
-  // Common optional filler words at start of phrase
-  const optionalFiller = '(?:(?:um|uh|ah|so|aur|and)\\b[\\s,.:;!?\'"’\\-—]*)*';
+/**
+ * Detects whether a speech transcript is an acoustic echo or repetition of Tia's recent response.
+ * Prevents microphone feedback loops where Tia's own voice through speakers is captured as user input.
+ */
+export function isTiaVoiceEcho(
+  candidateTranscript: string,
+  lastTiaSpokenText: string
+): boolean {
+  if (!candidateTranscript || !lastTiaSpokenText) return false;
 
-  // Optional salutation prefix (Hey, Hi, Hello, Suno, Arre, Ok, etc.)
-  const optionalGreeting =
-    '(?:(?:hey|hay|aye|ay|hi|hello|ok|okay|suno|sun|arre|are|ohe|oye|accha|acha)\\b[\\s,.:;!?\'"’\\-—]*)*';
+  const candNorm = normalizeTranscript(candidateTranscript);
+  const tiaNorm = normalizeTranscript(lastTiaSpokenText);
 
-  // Tia's name variants: focused specifically on Tia/Tiya/Tea
-  const tiaName = '\\b(?:tia|tiya|tea|teea|thea|thia|tya|diya|dia|teeya|tiah)\\b';
+  if (!candNorm || !tiaNorm) return false;
 
-  // Attention suffixes (e.g. "suno", "sun", "suniye", "ek baat batao", "bolo", "batao", "bataiye")
-  const optionalAttentionSuffix =
-    '(?:[\\s,.:;!?\'"’\\-—]*(?:suno|sun|suniye|ji|bolo|batao|bataiye|ek\\s+baat\\s+batao|ek\\s+baat\\s+bata|listen)\\b)*';
+  // Short casual conversational affirmations from real users (e.g. "ok", "haan", "nahi", "why")
+  // should never be falsely rejected
+  if (candNorm.length < 5) return false;
 
-  // 1. Primary Latin Regex:
-  const latinRegex = new RegExp(
-    `^${optionalFiller}${optionalGreeting}(${tiaName})${optionalAttentionSuffix}(?:[\\s,.:;!?\'"’\\-—]+(.*)|$)`,
-    'i'
-  );
-
-  // 2. Hindi Devanagari Regex:
-  const hindiRegex =
-    /^(?:(?:हे|हाय|हैलो|हेलो|सुनो|अरे|अर्रे|ओके|अच्छा)[\s,.:;!?'"’\-—]*)*(टिया|टीया|तीया|दिया|दीया|डिया|तिया)(?:[\s,.:;!?'"’\-—]*(?:सुनो|सुनिए|जी|बोलो|बताओ|बताइए|एक\s+बात\s+बताओ))*(?:[\s,.:;!?'"’\-—]+(.*)|$)/u;
-
-  // 3. Embedded in phrase (if user said something before Tia)
-  const embeddedLatin =
-    /(?:hey|hay|aye|hi|hello|suno|arre)?[\s,.:;!?'"’\-—]*\b(tia|tiya|tea|teea|thea|thia|diya)\b(?:[\s,.:;!?'"’\-—]*(?:suno|sun|suniye|ji|bolo|batao|ek\s+baat\s+batao))?(?:[\s,.:;!?'"’\-—]+(.*)|$)/i;
-
-  const embeddedHindi =
-    /(?:हे|हाय|हैलो|हेलो|सुनो|अरे)?[\s,.:;!?'"’\-—]*(टिया|टीया|तीया|दिया)(?:[\s,.:;!?'"’\-—]*(?:सुनो|सुनिए|जी|बोलो|बताओ|एक\s+बात\s+बताओ))?(?:[\s,.:;!?'"’\-—]+(.*)|$)/u;
-
-  let m = text.match(latinRegex);
-  if (m) {
-    const rawRemainder = m[2] || '';
-    const cleaned = cleanRemainder(rawRemainder);
-    const matchedPart = text.slice(0, text.length - rawRemainder.length).trim();
-    return {
-      detected: true,
-      remainderQuery: cleaned,
-      matchedPhrase: matchedPart || 'Tia',
-    };
+  // 1. Direct exact or substring match:
+  // If candidate is a substring of Tia's answer (and has at least 8 chars or 2 words)
+  if (tiaNorm.includes(candNorm) && (candNorm.length >= 8 || candNorm.split(' ').length >= 2)) {
+    return true;
   }
 
-  m = text.match(hindiRegex);
-  if (m) {
-    const rawRemainder = m[2] || '';
-    const cleaned = cleanRemainder(rawRemainder);
-    const matchedPart = text.slice(0, text.length - rawRemainder.length).trim();
-    return {
-      detected: true,
-      remainderQuery: cleaned,
-      matchedPhrase: matchedPart || 'टिया',
-    };
+  // 2. Tia's answer is inside candidate transcript
+  if (candNorm.includes(tiaNorm)) {
+    return true;
   }
 
-  m = text.match(embeddedLatin);
-  if (m) {
-    const rawRemainder = m[2] || '';
-    const cleaned = cleanRemainder(rawRemainder);
-    return {
-      detected: true,
-      remainderQuery: cleaned,
-      matchedPhrase: 'Tia (embedded)',
-    };
+  // 3. High word overlap test for partial captures (e.g. speaker tail captured on mic)
+  const candWords = candNorm.split(' ').filter((w) => w.length > 2);
+  const tiaWords = new Set(tiaNorm.split(' ').filter((w) => w.length > 2));
+
+  if (candWords.length >= 3 && tiaWords.size > 0) {
+    let matchingCount = 0;
+    for (const word of candWords) {
+      if (tiaWords.has(word)) {
+        matchingCount++;
+      }
+    }
+    const ratio = matchingCount / candWords.length;
+    // If more than 60% of words in candidate transcript match words from Tia's last spoken answer
+    if (ratio >= 0.6) {
+      return true;
+    }
   }
 
-  m = text.match(embeddedHindi);
-  if (m) {
-    const rawRemainder = m[2] || '';
-    const cleaned = cleanRemainder(rawRemainder);
+  return false;
+}
+
+/**
+ * Checks if a transcript begins with the "Tia" or "Hey Tia" wake phrase.
+ * 
+ * Supported wake phrases:
+ * - "Tia"
+ * - "Hey Tia"
+ * - "Hey, Tia"
+ * - "Tiya"
+ * - "Hey Tiya"
+ * - "Hi Tia", "Hello Tia", "Suno Tia"
+ * - Devanagari: "टिया", "टीया", "हे टिया", "सुनो टिया"
+ * 
+ * STRICT NEGATIVE CONSTRAINTS:
+ * - "Dia" must NOT wake Tia.
+ * - "Dea" must NOT wake Tia.
+ * - "Diya" must NOT wake Tia.
+ * - "Tea" must NOT wake Tia.
+ * - Random similar words must NOT wake Tia.
+ */
+export function detectWakeWord(rawTranscript: string): WakeWordMatch {
+  if (!rawTranscript) return { detected: false, remainderQuery: '' };
+  const raw = rawTranscript.trim();
+  if (!raw) return { detected: false, remainderQuery: '' };
+
+  const normalized = normalizeTranscript(raw);
+  if (!normalized) return { detected: false, remainderQuery: '' };
+
+  const tokens = normalized.split(' ');
+  if (tokens.length === 0) return { detected: false, remainderQuery: '' };
+
+  const isTiaToken = (t: string): boolean =>
+    t === 'tia' || t === 'tiya' || t === 'टिया' || t === 'टीया';
+
+  const isGreetingPrefix = (t: string): boolean =>
+    t === 'hey' ||
+    t === 'hi' ||
+    t === 'hello' ||
+    t === 'suno' ||
+    t === 'ok' ||
+    t === 'okay' ||
+    t === 'हे' ||
+    t === 'सुनो';
+
+  let matchedWordCount = 0;
+  let matchedPhrase = '';
+
+  // 1. Standalone "Tia" / "Tiya"
+  if (isTiaToken(tokens[0])) {
+    matchedWordCount = 1;
+    matchedPhrase = tokens[0];
+  }
+  // 2. "Hey Tia" / "Hey Tiya" / "Hi Tia" / "Hello Tia" / "Suno Tia"
+  else if (isGreetingPrefix(tokens[0]) && tokens.length > 1 && isTiaToken(tokens[1])) {
+    matchedWordCount = 2;
+    matchedPhrase = `${tokens[0]} ${tokens[1]}`;
+  }
+
+  if (matchedWordCount > 0) {
+    // Extract remainder from raw input to preserve casing and full query
+    let remainder = '';
+    const normLower = raw.toLowerCase();
+    const phraseIdx = normLower.indexOf(matchedPhrase.toLowerCase());
+    if (phraseIdx !== -1) {
+      const rawAfter = raw.slice(phraseIdx + matchedPhrase.length);
+      remainder = rawAfter
+        .replace(/^[\s,.:;!?\'"’\-—]+/, '')
+        .replace(/^(?:suno|sun|suniye|ji|bolo|batao|bataiye|listen|सुनो|सुनिए|जी|बोलो|बताओ|बताइए)[\s,.:;!?\'"’\-—]*/i, '')
+        .replace(/^[\s,.:;!?\'"’\-—]+/, '')
+        .trim();
+    } else {
+      remainder = tokens.slice(matchedWordCount).join(' ').trim();
+    }
+
     return {
       detected: true,
-      remainderQuery: cleaned,
-      matchedPhrase: 'हे टिया (embedded)',
+      remainderQuery: remainder,
+      matchedPhrase: matchedPhrase === 'टिया' ? 'टिया' : 'Tia',
     };
   }
 
   return { detected: false, remainderQuery: '' };
 }
 
-function cleanRemainder(str: string | undefined): string {
-  if (!str) return '';
-  let cleaned = str.replace(/^[\s,.:;!?'"’\-—]+/, '').trim();
-  // Strip any remaining conversational openers that are not questions
-  cleaned = cleaned
-    .replace(
-      /^(?:suno|sun|suniye|ji|bolo|batao|bataiye|ek\s+baat\s+batao|ek\s+baat\s+bata|listen|सुनो|सुनिए|जी|बोलो|बताओ|बताइए|एक\s+बात\s+बताओ)[\s,.:;!?'"’\-—]*/i,
-      ''
-    )
-    .trim();
-  cleaned = cleaned.replace(/^[\s,.:;!?'"’\-—]+/, '').trim();
-  return cleaned;
-}
-
 /**
  * Plays a pleasant, subtle two-tone audio wake chime via Web Audio API.
- * This gives instantaneous auditory confirmation to the user that Tia woke up.
+ * Gives instantaneous auditory confirmation to the user that Tia woke up.
  */
 export function playWakeChime(): void {
   if (typeof window === 'undefined') return;
@@ -200,23 +237,62 @@ export async function checkMicrophonePermission(): Promise<
 }
 
 /**
- * Requests microphone permission explicitly from the user via getUserMedia.
+ * Basic microphone verification:
+ * Checks:
+ * - navigator.mediaDevices
+ * - getUserMedia()
+ * - microphone permission
+ * - audio stream
  */
-export async function requestMicrophoneAccess(): Promise<boolean> {
+export async function verifyMicrophoneAccess(): Promise<{
+  ok: boolean;
+  error?: string;
+}> {
   if (
     typeof navigator === 'undefined' ||
     !navigator.mediaDevices ||
     !navigator.mediaDevices.getUserMedia
   ) {
-    return false;
+    return {
+      ok: false,
+      error: 'Microphone access is not supported by your browser.',
+    };
   }
 
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    // Immediately stop tracks; we only needed to verify/trigger permission
+    const audioTracks = stream.getAudioTracks();
+    if (!audioTracks || audioTracks.length === 0) {
+      stream.getTracks().forEach((t) => t.stop());
+      return {
+        ok: false,
+        error: 'No active microphone audio tracks detected on this device.',
+      };
+    }
+
+    // Immediately stop tracks to free hardware audio for SpeechRecognition
     stream.getTracks().forEach((t) => t.stop());
-    return true;
-  } catch {
-    return false;
+    return { ok: true };
+  } catch (err: unknown) {
+    let msg = 'Microphone permission was denied or unavailable.';
+    if (err instanceof DOMException) {
+      if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+        msg =
+          'Microphone permission was denied. Please allow microphone permissions in your browser or address bar.';
+      } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
+        msg = 'No microphone device was detected on your system.';
+      } else if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {
+        msg = 'Your microphone is already in use by another application.';
+      }
+    }
+    return { ok: false, error: msg };
   }
+}
+
+/**
+ * Requests microphone permission explicitly from the user via getUserMedia.
+ */
+export async function requestMicrophoneAccess(): Promise<boolean> {
+  const result = await verifyMicrophoneAccess();
+  return result.ok;
 }

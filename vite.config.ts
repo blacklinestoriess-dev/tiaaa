@@ -93,6 +93,12 @@ function tiaApiPlugin(): Plugin {
           res.end(JSON.stringify({ status: 'ok', assistant: 'Tia' }));
           return;
         }
+        if (req.url && req.url.startsWith('/api')) {
+          res.statusCode = 404;
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify({ success: false, error: 'API endpoint not found' }));
+          return;
+        }
         next();
       });
     },

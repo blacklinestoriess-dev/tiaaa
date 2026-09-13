@@ -6,6 +6,17 @@ export type AssistantState =
   | 'speaking'
   | 'follow_up_listening';
 
+export type VoiceState =
+  | 'IDLE'
+  | 'WAKE_WORD_LISTENING'
+  | 'WAKE_WORD_DETECTED'
+  | 'QUESTION_LISTENING'
+  | 'USER_SPEECH_RECEIVED'
+  | 'PROCESSING'
+  | 'TIA_SPEAKING'
+  | 'AUDIO_SETTLE'
+  | 'FOLLOW_UP_LISTENING';
+
 export type TiaEmotion =
   | 'neutral'
   | 'happy'

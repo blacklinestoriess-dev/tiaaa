@@ -1,5 +1,5 @@
 import React from 'react';
-import { Volume2, VolumeX, Moon, Sun, Settings, Sparkles, UserCheck, LogOut } from 'lucide-react';
+import { Volume2, VolumeX, Moon, Sun, Settings, Sparkles, UserCheck, LogOut, Languages } from 'lucide-react';
 import type { TiaSettings, OwnerProfile } from '../types';
 
 interface HeaderProps {
@@ -81,10 +81,30 @@ export const Header: React.FC<HeaderProps> = ({
               <span>{ownerProfile?.name || 'Owner'}</span>
             </button>
           </div>
-          <p className="text-[11px] text-slate-400 leading-none">
-            {settings.funnyMode ? 'Witty & Smart' : 'Helpful & Direct'} •{' '}
-            {settings.languagePreference.toUpperCase()}
-          </p>
+          <div className="flex items-center space-x-1.5 mt-0.5">
+            <span className="text-[11px] text-slate-400 leading-none">
+              {settings.funnyMode ? 'Witty & Smart' : 'Helpful & Direct'}
+            </span>
+            <span className="text-[10px] text-slate-500">•</span>
+            <button
+              type="button"
+              id="btn-header-language-toggle"
+              onClick={() => {
+                const order: Array<TiaSettings['languagePreference']> = ['auto', 'hinglish', 'hindi', 'english'];
+                const nextIdx = (order.indexOf(settings.languagePreference) + 1) % order.length;
+                onUpdateSettings({ languagePreference: order[nextIdx] });
+              }}
+              title={`Voice Speech Language: ${settings.languagePreference.toUpperCase()} (Click to toggle)`}
+              className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full flex items-center space-x-1 cursor-pointer transition-colors ${
+                isDark
+                  ? 'bg-white/10 hover:bg-white/20 text-slate-300 border border-white/10'
+                  : 'bg-slate-200 hover:bg-slate-300 text-slate-700 border border-slate-300'
+              }`}
+            >
+              <Languages className="w-2.5 h-2.5 opacity-70" />
+              <span>{settings.languagePreference === 'auto' ? 'AUTO' : settings.languagePreference.toUpperCase()}</span>
+            </button>
+          </div>
         </div>
       </div>
 

@@ -63,11 +63,14 @@ export function extractAuthToken(req: IncomingMessage): string | null {
 }
 
 export async function handleAuthRequest(req: IncomingMessage, res: ServerResponse) {
-  const url = req.url || '';
+  const rawUrl = (req as any).originalUrl || req.url || '';
+  const parsedUrl = new URL(rawUrl.startsWith('http') ? rawUrl : `http://localhost${rawUrl.startsWith('/') ? '' : '/'}${rawUrl}`);
+  const pathname = parsedUrl.pathname;
+  const subpath = pathname.replace(/^(\/api)?\/auth/, '') || '/';
   const method = req.method?.toUpperCase();
 
-  // GET /api/auth/status
-  if (method === 'GET' && url.startsWith('/api/auth/status')) {
+  // GET /api/auth/status or /status
+  if (method === 'GET' && subpath === '/status') {
     return sendJson(res, 200, {
       success: true,
       provider: 'credentials',
@@ -75,10 +78,9 @@ export async function handleAuthRequest(req: IncomingMessage, res: ServerRespons
     });
   }
 
-  // GET /api/auth/check-username?username=xyz
-  if (method === 'GET' && url.startsWith('/api/auth/check-username')) {
+  // GET /api/auth/check-username?username=xyz or /check-username
+  if (method === 'GET' && subpath === '/check-username') {
     try {
-      const parsedUrl = new URL(url, 'http://localhost');
       const username = parsedUrl.searchParams.get('username') || '';
       if (!username || username.trim().length < 3) {
         return sendJson(res, 200, {
@@ -98,8 +100,8 @@ export async function handleAuthRequest(req: IncomingMessage, res: ServerRespons
     }
   }
 
-  // POST /api/auth/signup
-  if (method === 'POST' && url.startsWith('/api/auth/signup')) {
+  // POST /api/auth/signup or /signup
+  if (method === 'POST' && subpath === '/signup') {
     try {
       const body = await readRequestBody(req);
       const {
@@ -209,8 +211,8 @@ export async function handleAuthRequest(req: IncomingMessage, res: ServerRespons
     }
   }
 
-  // POST /api/auth/login
-  if (method === 'POST' && url.startsWith('/api/auth/login')) {
+  // POST /api/auth/login or /login
+  if (method === 'POST' && subpath === '/login') {
     try {
       const body = await readRequestBody(req);
       const { username, password } = body;
@@ -240,8 +242,8 @@ export async function handleAuthRequest(req: IncomingMessage, res: ServerRespons
     }
   }
 
-  // GET /api/auth/me or GET /api/auth/session -> Returns authenticated user & profile
-  if (method === 'GET' && (url.startsWith('/api/auth/me') || url.startsWith('/api/auth/session'))) {
+  // GET /api/auth/me or /me or /session
+  if (method === 'GET' && (subpath === '/me' || subpath === '/session')) {
     const token = extractAuthToken(req);
     if (!token) {
       return sendJson(res, 401, { success: false, error: 'Unauthorized: Missing session token' });
@@ -266,8 +268,8 @@ export async function handleAuthRequest(req: IncomingMessage, res: ServerRespons
     });
   }
 
-  // POST /api/auth/logout
-  if (method === 'POST' && url.startsWith('/api/auth/logout')) {
+  // POST /api/auth/logout or /logout
+  if (method === 'POST' && subpath === '/logout') {
     const token = extractAuthToken(req);
     if (token) {
       destroyUserSession(token);

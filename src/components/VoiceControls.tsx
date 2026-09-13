@@ -37,7 +37,7 @@ export const VoiceControls: React.FC<VoiceControlsProps> = ({
       onStopListening();
     } else if (state === 'speaking') {
       onStopSpeech();
-    } else if (state === 'idle') {
+    } else if (state === 'idle' || state === 'wake_word_detected') {
       onStartListening();
     }
   };
@@ -143,7 +143,7 @@ export const VoiceControls: React.FC<VoiceControlsProps> = ({
             }`}
           >
             {isListeningState ? (
-              <MicOff className="w-8 h-8" />
+              <Mic className="w-8 h-8 animate-pulse text-white" />
             ) : state === 'speaking' ? (
               <div className="flex flex-col items-center justify-center">
                 <span className="w-4 h-4 rounded-xs bg-white mb-0.5" />

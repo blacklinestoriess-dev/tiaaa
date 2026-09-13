@@ -1,43 +1,20 @@
-const CACHE_NAME = 'tia-voice-v1';
-const ASSETS_TO_CACHE = ['/', '/index.html', '/icon.svg', '/manifest.webmanifest'];
+// Self-cleaning kill-switch Service Worker for Tia applet
+// Immediately activates, unregisters itself, and clears all stale caches without intercepting any network requests.
 
-self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(ASSETS_TO_CACHE))
-  );
+self.addEventListener('install', () => {
   self.skipWaiting();
 });
 
 self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches.keys().then((keys) =>
-      Promise.all(
-        keys.map((key) => {
-          if (key !== CACHE_NAME) {
-            return caches.delete(key);
-          }
-        })
-      )
-    )
+    caches
+      .keys()
+      .then((keys) => Promise.all(keys.map((key) => caches.delete(key))))
+      .then(() => self.registration.unregister())
+      .then(() => self.clients.claim())
   );
-  self.clients.claim();
 });
 
-self.addEventListener('fetch', (event) => {
-  // Never cache API requests
-  if (event.request.url.includes('/api/')) {
-    return;
-  }
-  event.respondWith(
-    caches.match(event.request).then((cached) => {
-      return (
-        cached ||
-        fetch(event.request).catch(() => {
-          if (event.request.mode === 'navigate') {
-            return caches.match('/index.html');
-          }
-        })
-      );
-    })
-  );
-});
+// No 'fetch' event listener is attached.
+// All network requests pass directly to the network/server without caching or interference.
+
