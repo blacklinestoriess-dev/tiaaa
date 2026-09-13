@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import os from 'os';
 import { fileURLToPath } from 'url';
 
 export interface OwnerMemory {
@@ -47,7 +48,6 @@ export const DEFAULT_OWNER_PROFILE: OwnerProfile = {
 
 // Determine file storage path
 function getStoragePath(): string {
-  // If in ES module context
   try {
     const currentDir = process.cwd();
     const dataDir = path.resolve(currentDir, 'server', 'data');
@@ -56,11 +56,15 @@ function getStoragePath(): string {
     }
     return path.resolve(dataDir, 'owner_profile.json');
   } catch {
-    const dataDir = path.resolve('/server', 'data');
-    if (!fs.existsSync(dataDir)) {
-      fs.mkdirSync(dataDir, { recursive: true });
+    try {
+      const tmpDir = path.resolve(os.tmpdir(), 'tia_data');
+      if (!fs.existsSync(tmpDir)) {
+        fs.mkdirSync(tmpDir, { recursive: true });
+      }
+      return path.resolve(tmpDir, 'owner_profile.json');
+    } catch {
+      return path.resolve(os.tmpdir(), 'owner_profile.json');
     }
-    return path.resolve(dataDir, 'owner_profile.json');
   }
 }
 

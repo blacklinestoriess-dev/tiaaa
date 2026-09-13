@@ -8,8 +8,16 @@ import { handleAuthRequest } from './server/authHandler.ts';
 
 dotenv.config();
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+// Safe resolution for __dirname in both ESM and CJS/bundled environments
+const getDirname = () => {
+  if (typeof __dirname !== 'undefined') return __dirname;
+  try {
+    return path.dirname(fileURLToPath(import.meta.url));
+  } catch {
+    return process.cwd();
+  }
+};
+const currentDirname = getDirname();
 
 const app = express();
 const PORT = 3000;
@@ -65,23 +73,23 @@ app.get('/api/health', (_req, res) => {
 });
 
 // API endpoint for Authentication (signup, login, logout, me, check-username, status)
-app.use('/api/auth', (req, res) => {
-  handleAuthRequest(req, res);
+app.use('/api/auth', (req, res, next) => {
+  Promise.resolve(handleAuthRequest(req, res)).catch(next);
 });
 
 // API endpoint for Tia chat
-app.post('/api/chat', (req, res) => {
-  handleChatRequest(req, res);
+app.post('/api/chat', (req, res, next) => {
+  Promise.resolve(handleChatRequest(req, res)).catch(next);
 });
 
 // API endpoint for persistent owner profile and memories
-app.use('/api/profile', (req, res) => {
-  handleProfileRequest(req, res);
+app.use('/api/profile', (req, res, next) => {
+  Promise.resolve(handleProfileRequest(req, res)).catch(next);
 });
 
 // API endpoint for user-specific conversation history
-app.use('/api/conversations', (req, res) => {
-  handleConversationRequest(req, res);
+app.use('/api/conversations', (req, res, next) => {
+  Promise.resolve(handleConversationRequest(req, res)).catch(next);
 });
 
 // Final API 404 handler: guarantees /api routes return JSON, never HTML (Requirement 21)
@@ -112,7 +120,7 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
 });
 
 // Serve production static assets from dist
-const distPath = path.resolve(__dirname, 'dist');
+const distPath = path.resolve(currentDirname, 'dist');
 app.use(express.static(distPath));
 
 // SPA fallback to index.html with strict protection against intercepting /api (Requirements 18 & 19)

@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
+import os from 'os';
 
 export interface UserRecord {
   id: string;
@@ -113,11 +114,15 @@ function getDbFilePath(): string {
     }
     return path.resolve(dataDir, 'tia_database.json');
   } catch {
-    const dataDir = path.resolve('/server', 'data');
-    if (!fs.existsSync(dataDir)) {
-      fs.mkdirSync(dataDir, { recursive: true });
+    try {
+      const tmpDir = path.resolve(os.tmpdir(), 'tia_data');
+      if (!fs.existsSync(tmpDir)) {
+        fs.mkdirSync(tmpDir, { recursive: true });
+      }
+      return path.resolve(tmpDir, 'tia_database.json');
+    } catch {
+      return path.resolve(os.tmpdir(), 'tia_database.json');
     }
-    return path.resolve(dataDir, 'tia_database.json');
   }
 }
 
