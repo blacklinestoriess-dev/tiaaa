@@ -37,6 +37,8 @@ import {
   checkMicrophonePermission,
   requestMicrophoneAccess,
   verifyMicrophoneAccess,
+  isTiaVoiceEcho,
+  isStaleOrEchoTranscript,
 } from './services/wakeWord';
 import { parseApiResponse } from './utils/api';
 
@@ -219,13 +221,20 @@ export default function App() {
   const transcriptBufferRef = useRef<string>('');
   const speechSessionRef = useRef<SpeechSessionController | null>(null);
   const followUpTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const followUpTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const followUpEndTimeRef = useRef<number | null>(null);
   const followUpRestartAttemptsRef = useRef<number>(0);
   const wakeRestartTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const wakeTransitionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const speechSilenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const questionWaitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const audioSettleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isSubmittingRef = useRef<boolean>(false);
+  const isSpeakingRef = useRef<boolean>(false);
+  const activeSessionIdRef = useRef<number>(0);
+  const lastTiaSpokenTextRef = useRef<string>('');
+  const lastTiaSpeechEndTimeRef = useRef<number>(0);
+  const lastSubmittedQuestionRef = useRef<string>('');
   const isComponentMounted = useRef(true);
 
   // Sync ref for state in callbacks
@@ -305,11 +314,15 @@ export default function App() {
     };
   }, []);
 
-  // Clear follow-up countdown interval
+  // Clear follow-up countdown interval & timeout
   const clearFollowUpTimer = useCallback(() => {
     if (followUpTimerRef.current) {
       clearInterval(followUpTimerRef.current);
       followUpTimerRef.current = null;
+    }
+    if (followUpTimeoutRef.current) {
+      clearTimeout(followUpTimeoutRef.current);
+      followUpTimeoutRef.current = null;
     }
     followUpEndTimeRef.current = null;
     followUpRestartAttemptsRef.current = 0;
@@ -333,6 +346,11 @@ export default function App() {
 
   // Stop any active speech synthesis (with support for barge-in)
   const stopSpeech = useCallback(() => {
+    isSpeakingRef.current = false;
+    if (audioSettleTimerRef.current) {
+      clearTimeout(audioSettleTimerRef.current);
+      audioSettleTimerRef.current = null;
+    }
     if (speechSessionRef.current) {
       speechSessionRef.current.cancel();
       speechSessionRef.current = null;
@@ -359,6 +377,9 @@ export default function App() {
       contextType?: any,
       suggestedVoiceGender?: 'female' | 'male' | 'any'
     ) => {
+      // Record Tia's spoken text for acoustic echo cancellation
+      lastTiaSpokenTextRef.current = textToSpeak;
+
       if (!settings.voiceEnabled) {
         if (settings.handsFreeMode) {
           startListeningRef.current(true);
@@ -373,13 +394,15 @@ export default function App() {
         return;
       }
 
-      // Stop any prior speech session
+      // 1. Stop any prior speech session
       if (speechSessionRef.current) {
         speechSessionRef.current.cancel();
         speechSessionRef.current = null;
       }
 
-      // CRITICAL (Step 9): Stop speech recognition to prevent TTS feedback loop
+      // 2. CRITICAL: TTS and SpeechRecognition must NEVER run against each other.
+      // Invalidate session so late callbacks are ignored, and abort active recognizer.
+      activeSessionIdRef.current += 1;
       if (recognizerRef.current) {
         try {
           recognizerRef.current.abort();
@@ -388,6 +411,13 @@ export default function App() {
         }
         recognizerRef.current = null;
       }
+      transcriptBufferRef.current = '';
+      setLiveTranscript('');
+      clearFollowUpTimer();
+      clearQuestionWaitTimer();
+      clearSpeechSilenceTimer();
+
+      isSpeakingRef.current = true;
 
       // Contextual voice resolution
       const { voice, voiceLabel } = selectContextualVoice({
@@ -409,6 +439,7 @@ export default function App() {
         voice,
         baseRate: settings.speechRate,
         onStart: () => {
+          isSpeakingRef.current = true;
           setAssistantState('speaking');
           setDebugInfo((prev) => ({
             ...prev,
@@ -418,13 +449,28 @@ export default function App() {
         },
         onEnd: () => {
           speechSessionRef.current = null;
-          // When Tia finishes speaking, naturally transition to follow-up listening after releasing audio hardware
+          isSpeakingRef.current = false;
+          lastTiaSpeechEndTimeRef.current = Date.now();
+
+          // Wait a short safe audio-settle delay (450ms) so speaker acoustic playback decays completely
+          // before opening the microphone for follow-up listening
           if (settingsRef.current.handsFreeMode && isSpeechRecognitionSupported()) {
-            setTimeout(() => {
+            if (audioSettleTimerRef.current) {
+              clearTimeout(audioSettleTimerRef.current);
+            }
+            audioSettleTimerRef.current = setTimeout(() => {
+              audioSettleTimerRef.current = null;
+              if (
+                !isComponentMounted.current ||
+                isSpeakingRef.current ||
+                isSubmittingRef.current
+              ) {
+                return;
+              }
               if (stateRef.current === 'speaking' || stateRef.current === 'idle') {
                 startListeningRef.current(true);
               }
-            }, 250);
+            }, 450);
           } else {
             setAssistantState('idle');
           }
@@ -432,6 +478,7 @@ export default function App() {
         onError: (err) => {
           console.warn('Speech playback notice:', err);
           speechSessionRef.current = null;
+          isSpeakingRef.current = false;
           setAssistantState('idle');
         },
       });
@@ -442,6 +489,9 @@ export default function App() {
       settings.autoVoiceSelection,
       settings.selectedVoiceURI,
       settings.speechRate,
+      clearFollowUpTimer,
+      clearQuestionWaitTimer,
+      clearSpeechSilenceTimer,
     ]
   );
 
@@ -451,10 +501,28 @@ export default function App() {
       const trimmed = userText.trim();
       if (!trimmed) return;
 
+      // Stale event & double-submission prevention
+      activeSessionIdRef.current += 1;
+      isSubmittingRef.current = true;
+      lastSubmittedQuestionRef.current = trimmed;
+
       clearFollowUpTimer();
       clearQuestionWaitTimer();
       clearSpeechSilenceTimer();
       stopSpeech();
+
+      // Cleanly stop any existing recognizer
+      if (recognizerRef.current) {
+        try {
+          recognizerRef.current.abort();
+        } catch {
+          // ignore
+        }
+        recognizerRef.current = null;
+      }
+      transcriptBufferRef.current = '';
+      setLiveTranscript('');
+
       setErrorMessage(null);
       setLastUserQuery(trimmed);
       setAssistantState('thinking');
@@ -576,9 +644,13 @@ export default function App() {
     clearFollowUpTimer();
     clearQuestionWaitTimer();
     clearSpeechSilenceTimer();
+
+    // Invalidate session so late callbacks are discarded
+    activeSessionIdRef.current += 1;
+
     if (recognizerRef.current) {
       try {
-        recognizerRef.current.stop();
+        recognizerRef.current.abort();
       } catch {
         // ignore
       }
@@ -586,10 +658,18 @@ export default function App() {
     }
 
     const finalQuery = transcriptBufferRef.current.trim();
+    transcriptBufferRef.current = '';
     setLiveTranscript('');
 
-    if (finalQuery && !isSubmittingRef.current) {
-      isSubmittingRef.current = true;
+    if (
+      finalQuery &&
+      !isSubmittingRef.current &&
+      !isStaleOrEchoTranscript(
+        finalQuery,
+        lastTiaSpokenTextRef.current,
+        lastSubmittedQuestionRef.current
+      )
+    ) {
       submitToTia(finalQuery);
     } else {
       isSubmittingRef.current = false;
@@ -598,12 +678,20 @@ export default function App() {
         ...prev,
         recognizerStatus: 'IDLE (Stopped manually)',
       }));
+      if (settingsRef.current.handsFreeMode) {
+        setTimeout(() => {
+          if (stateRef.current === 'idle') {
+            startWakeWordListenerRef.current();
+          }
+        }, 250);
+      }
     }
   }, [submitToTia, clearFollowUpTimer, clearQuestionWaitTimer, clearSpeechSilenceTimer]);
 
   // Clean transition from wake word detection to active question listening
   const transitionToQuestionListening = useCallback(async () => {
-    // 1. Cleanly stop and await wake recognizer shutdown so mic is completely released
+    activeSessionIdRef.current += 1;
+    // Cleanly stop and await wake recognizer shutdown so mic is completely released
     if (recognizerRef.current) {
       const oldRecognizer = recognizerRef.current;
       recognizerRef.current = null;
@@ -614,54 +702,36 @@ export default function App() {
       }
     }
 
-    // 2. Short pause for microphone audio stream handover
-    await new Promise((resolve) => setTimeout(resolve, 120));
+    // Short pause for microphone audio stream handover
+    await new Promise((resolve) => setTimeout(resolve, 150));
 
     if (!isComponentMounted.current) return;
 
-    // 3. Launch active question listening session
+    // Launch active question listening session
     startListeningRef.current(false);
   }, []);
 
   // Start active speech recognition (used either from wake word, user tap, or follow-up listening)
   const startListening = useCallback(
     async (isFollowUp = false, isRestart = false) => {
-      // Clear timers appropriately
-      if (!isFollowUp && !isRestart) {
+      // Invalidate any previous session so old callbacks are strictly dropped
+      const sessionId = ++activeSessionIdRef.current;
+
+      // Reset state and ALWAYS clear transcript buffer when beginning new recognition session
+      if (!isRestart) {
         clearFollowUpTimer();
         clearQuestionWaitTimer();
+        clearSpeechSilenceTimer();
         transcriptBufferRef.current = '';
         setLiveTranscript('');
-      } else if (!isFollowUp) {
-        clearFollowUpTimer();
+      } else {
+        clearSpeechSilenceTimer();
       }
-      clearSpeechSilenceTimer();
       stopSpeech();
       setErrorMessage(null);
       isSubmittingRef.current = false;
 
-      // STEP 1: Basic Microphone Test
-      // Before setting "I'm listening", verify the browser can access the microphone
-      if (!isRestart) {
-        const micCheck = await verifyMicrophoneAccess();
-        if (!micCheck.ok) {
-          setMicPermission('denied');
-          setErrorMessage(micCheck.error || 'Microphone access is unavailable.');
-          setAssistantState('idle');
-          setDebugInfo((prev) => ({
-            ...prev,
-            micPermission: 'denied',
-            micReady: false,
-            speechRecReady: isSpeechRecognitionSupported(),
-            isListening: false,
-            recognizerStatus: 'ERROR: ' + (micCheck.error || 'Microphone access unavailable'),
-          }));
-          return;
-        }
-        setMicPermission('granted');
-      }
-
-      // STEP 2: Speech Recognition engine check
+      // Speech Recognition engine check
       if (!isSpeechRecognitionSupported()) {
         setErrorMessage(
           'Speech recognition is not supported in this browser. Please open in Google Chrome on Android or desktop!'
@@ -676,7 +746,7 @@ export default function App() {
         return;
       }
 
-      // Stop any background wake recognizer or previous session cleanly
+      // Stop any prior recognizer cleanly
       if (recognizerRef.current) {
         try {
           await recognizerRef.current.abortAsync();
@@ -686,8 +756,11 @@ export default function App() {
         recognizerRef.current = null;
       }
 
+      if (sessionId !== activeSessionIdRef.current || !isComponentMounted.current) {
+        return;
+      }
+
       recognitionModeRef.current = isFollowUp ? 'follow_up' : 'active';
-      // ONLY show "I'm listening" now that mic and engine are verified!
       setAssistantState(isFollowUp ? 'follow_up_listening' : 'listening');
       setDebugInfo((prev) => ({
         ...prev,
@@ -700,11 +773,10 @@ export default function App() {
           : 'QUESTION_LISTENING',
       }));
 
-      // Setup follow-up timer countdown if in follow-up mode
+      // Setup follow-up timer (EXACTLY 5 SECONDS)
       if (isFollowUp) {
-        // Only start countdown if not already running, preventing reset on internal reconnections
-        if (!followUpEndTimeRef.current) {
-          const timeoutSeconds = Math.max(3, Math.min(10, settingsRef.current.followUpTimeoutSeconds || 4));
+        if (!followUpEndTimeRef.current || !isRestart) {
+          const timeoutSeconds = 5;
           const endTime = Date.now() + timeoutSeconds * 1000;
           followUpEndTimeRef.current = endTime;
           followUpRestartAttemptsRef.current = 0;
@@ -712,6 +784,9 @@ export default function App() {
 
           if (followUpTimerRef.current) {
             clearInterval(followUpTimerRef.current);
+          }
+          if (followUpTimeoutRef.current) {
+            clearTimeout(followUpTimeoutRef.current);
           }
 
           followUpTimerRef.current = setInterval(() => {
@@ -723,41 +798,56 @@ export default function App() {
             const msRemaining = followUpEndTimeRef.current - Date.now();
             const secsLeft = Math.max(0, Math.ceil(msRemaining / 1000));
             setFollowUpRemaining(secsLeft);
+          }, 200);
 
-            if (msRemaining <= 0) {
-              clearFollowUpTimer();
+          // One-shot exact 5-second silence timeout: returns to idle
+          followUpTimeoutRef.current = setTimeout(() => {
+            clearFollowUpTimer();
+            if (sessionId !== activeSessionIdRef.current) return;
+            if (
+              stateRef.current === 'follow_up_listening' &&
+              !isSubmittingRef.current
+            ) {
+              activeSessionIdRef.current += 1;
               if (recognizerRef.current) {
                 try {
-                  recognizerRef.current.stop();
+                  recognizerRef.current.abort();
                 } catch {
                   // ignore
                 }
                 recognizerRef.current = null;
               }
+              transcriptBufferRef.current = '';
+              setLiveTranscript('');
               setAssistantState('idle');
               setDebugInfo((prev) => ({
                 ...prev,
                 isListening: false,
-                recognizerStatus: 'IDLE (Follow-up timeout expired naturally)',
+                recognizerStatus: 'IDLE (Follow-up 5s expired naturally)',
               }));
               if (settingsRef.current.handsFreeMode) {
                 setTimeout(() => {
                   if (stateRef.current === 'idle') {
                     startWakeWordListenerRef.current();
                   }
-                }, 200);
+                }, 250);
               }
             }
-          }, 200);
+          }, 5000);
         }
       } else if (!isRestart) {
-        // Question listening mode: wait up to 10s for user to speak their question
+        // Active manual microphone / question mode: wait up to 10s for user speech
         clearFollowUpTimer();
         questionWaitTimerRef.current = setTimeout(() => {
-          if (!transcriptBufferRef.current.trim() && stateRef.current === 'listening') {
+          if (sessionId !== activeSessionIdRef.current) return;
+          if (
+            !transcriptBufferRef.current.trim() &&
+            stateRef.current === 'listening'
+          ) {
+            activeSessionIdRef.current += 1;
             if (recognizerRef.current) {
               try {
-                recognizerRef.current.stop();
+                recognizerRef.current.abort();
               } catch {
                 // ignore
               }
@@ -774,7 +864,7 @@ export default function App() {
                 if (stateRef.current === 'idle') {
                   startWakeWordListenerRef.current();
                 }
-              }, 200);
+              }, 250);
             }
           }
         }, 10000);
@@ -784,6 +874,7 @@ export default function App() {
         settings.languagePreference,
         {
           onStart: () => {
+            if (sessionId !== activeSessionIdRef.current) return;
             setMicPermission('granted');
             setDebugInfo((prev) => ({
               ...prev,
@@ -798,14 +889,29 @@ export default function App() {
             }));
           },
           onResult: (transcript, isFinal) => {
-            if (isSubmittingRef.current) return;
+            if (sessionId !== activeSessionIdRef.current) return;
+            if (isSubmittingRef.current || isSpeakingRef.current) return;
+
             const clean = transcript.trim();
             if (!clean) return;
 
+            // Reject acoustic echo of Tia's recent response or ghost repeat of previous query
+            if (
+              isStaleOrEchoTranscript(
+                clean,
+                lastTiaSpokenTextRef.current,
+                lastSubmittedQuestionRef.current
+              )
+            ) {
+              console.debug('Discarded stale/echo speech in onResult:', clean);
+              return;
+            }
+
+            // Valid user speech!
             transcriptBufferRef.current = clean;
             setLiveTranscript(clean);
 
-            // Once user begins speaking, clear countdown and question wait timers
+            // Cancel follow-up 5s timeout & question wait timers since user is actively speaking
             clearFollowUpTimer();
             clearQuestionWaitTimer();
 
@@ -821,34 +927,44 @@ export default function App() {
               recognizerStatus: `SPEECH_RECEIVED: "${clean}"`,
             }));
 
-            // Debounce question finalization: 900ms if final, 1600ms if interim pause
+            // Debounce question finalization: 900ms if final, 1500ms if interim pause
             clearSpeechSilenceTimer();
             speechSilenceTimerRef.current = setTimeout(() => {
-              if (isSubmittingRef.current) return;
+              if (sessionId !== activeSessionIdRef.current) return;
+              if (isSubmittingRef.current || isSpeakingRef.current) return;
+
               const textToSubmit = transcriptBufferRef.current.trim();
-              if (textToSubmit) {
+              if (
+                textToSubmit &&
+                !isStaleOrEchoTranscript(
+                  textToSubmit,
+                  lastTiaSpokenTextRef.current,
+                  lastSubmittedQuestionRef.current
+                )
+              ) {
+                activeSessionIdRef.current += 1;
                 isSubmittingRef.current = true;
                 if (recognizerRef.current) {
                   try {
-                    recognizerRef.current.stop();
+                    recognizerRef.current.abort();
                   } catch {
                     // ignore
                   }
                   recognizerRef.current = null;
                 }
+                transcriptBufferRef.current = '';
                 setLiveTranscript('');
                 setDebugInfo((prev) => ({
                   ...prev,
                   isListening: false,
                   recognizerStatus: 'PROCESSING',
                 }));
-                // STEP 4: Call the EXACT same handler as typed messages
                 submitToTiaRef.current(textToSubmit);
               }
-            }, isFinal ? 900 : 1600);
+            }, isFinal ? 900 : 1500);
           },
           onError: (errMsg, errCode) => {
-            // Ignore normal non-fatal speech recognition events in question/follow-up listening
+            if (sessionId !== activeSessionIdRef.current) return;
             if (errCode === 'no-speech' || errCode === 'aborted') {
               return;
             }
@@ -887,22 +1003,31 @@ export default function App() {
             setLiveTranscript('');
           },
           onEnd: () => {
+            if (sessionId !== activeSessionIdRef.current) return;
             clearSpeechSilenceTimer();
-            if (isSubmittingRef.current) return;
+            if (isSubmittingRef.current || isSpeakingRef.current) return;
             if (stateRef.current === 'thinking' || stateRef.current === 'speaking') return;
 
             const buffered = transcriptBufferRef.current.trim();
-            if (buffered) {
+            if (
+              buffered &&
+              !isStaleOrEchoTranscript(
+                buffered,
+                lastTiaSpokenTextRef.current,
+                lastSubmittedQuestionRef.current
+              )
+            ) {
+              activeSessionIdRef.current += 1;
               isSubmittingRef.current = true;
               clearFollowUpTimer();
               clearQuestionWaitTimer();
+              transcriptBufferRef.current = '';
               setLiveTranscript('');
               setDebugInfo((prev) => ({
                 ...prev,
                 isListening: false,
                 recognizerStatus: 'PROCESSING',
               }));
-              // STEP 4: Submit buffered user text to existing AI message pipeline
               submitToTiaRef.current(buffered);
               return;
             }
@@ -910,7 +1035,7 @@ export default function App() {
             // In follow-up mode: check if countdown time is still active
             if (stateRef.current === 'follow_up_listening' && followUpEndTimeRef.current) {
               const msLeft = followUpEndTimeRef.current - Date.now();
-              if (msLeft > 500 && followUpRestartAttemptsRef.current < 4 && isComponentMounted.current) {
+              if (msLeft > 500 && followUpRestartAttemptsRef.current < 3 && isComponentMounted.current) {
                 followUpRestartAttemptsRef.current += 1;
                 setTimeout(() => {
                   if (
@@ -921,62 +1046,58 @@ export default function App() {
                   ) {
                     startListening(true, true);
                   }
-                }, 150);
+                }, 120);
                 return;
               }
-              // If time is up or max retries reached, transition smoothly to idle
+              // Time is up: transition to idle
               clearFollowUpTimer();
               setAssistantState('idle');
               setLiveTranscript('');
               setDebugInfo((prev) => ({
                 ...prev,
                 isListening: false,
-                recognizerStatus: 'IDLE (Follow-up expired)',
+                recognizerStatus: 'IDLE (Follow-up 5s window completed)',
               }));
               if (settingsRef.current.handsFreeMode) {
                 setTimeout(() => {
                   if (stateRef.current === 'idle') {
                     startWakeWordListenerRef.current();
                   }
-                }, 200);
+                }, 250);
               }
               return;
             }
 
             // In active question mode: if questionWaitTimer is still running, restart continuous listening
-            if (stateRef.current === 'listening' && questionWaitTimerRef.current && isComponentMounted.current) {
+            if (
+              stateRef.current === 'listening' &&
+              questionWaitTimerRef.current &&
+              isComponentMounted.current
+            ) {
               setTimeout(() => {
                 if (stateRef.current === 'listening' && !isSubmittingRef.current) {
                   startListening(false, true);
                 }
-              }, 150);
+              }, 120);
               return;
             }
 
-            setAssistantState((current) =>
-              current === 'listening' || current === 'follow_up_listening'
-                ? 'idle'
-                : current
-            );
+            // Default fallback to idle
+            setAssistantState('idle');
             setLiveTranscript('');
-            setDebugInfo((prev) => ({
-              ...prev,
-              isListening: false,
-              recognizerStatus: 'IDLE',
-            }));
             if (settingsRef.current.handsFreeMode) {
               setTimeout(() => {
                 if (stateRef.current === 'idle') {
                   startWakeWordListenerRef.current();
                 }
-              }, 200);
+              }, 250);
             }
           },
         },
         { continuous: true, isWakeWordMode: false }
       );
 
-      if (recognizer) {
+      if (recognizer && sessionId === activeSessionIdRef.current) {
         recognizerRef.current = recognizer;
         recognizer.start();
       } else {
@@ -1006,7 +1127,15 @@ export default function App() {
       }));
       return;
     }
-    if (stateRef.current !== 'idle') return;
+    if (
+      stateRef.current !== 'idle' ||
+      isSpeakingRef.current ||
+      isSubmittingRef.current
+    ) {
+      return;
+    }
+
+    const sessionId = ++activeSessionIdRef.current;
 
     if (recognizerRef.current) {
       try {
@@ -1017,7 +1146,14 @@ export default function App() {
       recognizerRef.current = null;
     }
 
-    if (stateRef.current !== 'idle') return;
+    if (
+      sessionId !== activeSessionIdRef.current ||
+      stateRef.current !== 'idle' ||
+      isSpeakingRef.current ||
+      isSubmittingRef.current
+    ) {
+      return;
+    }
 
     recognitionModeRef.current = 'idle_wake';
     const activeLang = 'en-IN';
@@ -1034,6 +1170,7 @@ export default function App() {
       settings.languagePreference,
       {
         onStart: () => {
+          if (sessionId !== activeSessionIdRef.current) return;
           setDebugInfo((prev) => ({
             ...prev,
             wakeWordActive: true,
@@ -1042,8 +1179,15 @@ export default function App() {
             recognizerStatus: 'WAKE_WORD_LISTENING',
           }));
         },
-        onResult: (transcript, isFinal) => {
-          if (stateRef.current !== 'idle') return;
+        onResult: (transcript) => {
+          if (sessionId !== activeSessionIdRef.current) return;
+          if (
+            stateRef.current !== 'idle' ||
+            isSpeakingRef.current ||
+            isSubmittingRef.current
+          ) {
+            return;
+          }
 
           setDebugInfo((prev) => ({
             ...prev,
@@ -1053,6 +1197,7 @@ export default function App() {
 
           const match = detectWakeWord(transcript);
           if (match.detected) {
+            activeSessionIdRef.current += 1;
             setDebugInfo((prev) => ({
               ...prev,
               lastWakeDetected: `"${match.matchedPhrase || 'Tia'}" detected at ${new Date().toLocaleTimeString()}`,
@@ -1064,31 +1209,49 @@ export default function App() {
               playWakeChime();
             }
 
-            // 2. If single-breath question (e.g. "Tia, what is GDP?"):
+            // 2. If single-breath question (e.g. "Tia, what is GDP?" or "Dia, what is GDP?"):
             if (match.remainderQuery && match.remainderQuery.length > 2) {
+              const query = match.remainderQuery.trim();
+              // Check if query is an echo of Tia's recent response
+              if (
+                isStaleOrEchoTranscript(
+                  query,
+                  lastTiaSpokenTextRef.current,
+                  lastSubmittedQuestionRef.current
+                )
+              ) {
+                console.debug('Discarded echo question in wake remainder:', query);
+                return;
+              }
+
               if (recognizerRef.current) {
-                recognizerRef.current.abort();
+                try {
+                  recognizerRef.current.abort();
+                } catch {
+                  // ignore
+                }
                 recognizerRef.current = null;
               }
               setAssistantState('thinking');
-              setLastUserQuery(match.remainderQuery);
+              setLastUserQuery(query);
               setDebugInfo((prev) => ({
                 ...prev,
                 wakeWordActive: false,
                 isListening: false,
                 recognizerStatus: 'PROCESSING',
               }));
-              submitToTiaRef.current(match.remainderQuery);
+              submitToTiaRef.current(query);
               return;
             }
 
-            // 3. User said "Tia" or "Hey Tia" (standalone wake word)
-            // DO NOT send the wake word to AI. Transition to question listening!
+            // 3. User said "Tia", "Dia", "Diya", "Tiya", or "Hey Tia" (standalone wake word)
+            // Transition cleanly to question listening!
             setAssistantState('wake_word_detected');
             transitionToQuestionListening();
           }
         },
         onError: (errMsg, errCode) => {
+          if (sessionId !== activeSessionIdRef.current) return;
           if (errCode === 'not-allowed' || errCode === 'service-not-allowed') {
             setMicPermission('denied');
             setDebugInfo((prev) => ({
@@ -1109,14 +1272,22 @@ export default function App() {
           }
         },
         onEnd: () => {
+          if (sessionId !== activeSessionIdRef.current) return;
           // Restart wake word listener if still in idle state and hands-free is enabled
           if (
             stateRef.current === 'idle' &&
             settingsRef.current.handsFreeMode &&
+            !isSpeakingRef.current &&
+            !isSubmittingRef.current &&
             isComponentMounted.current
           ) {
             wakeRestartTimerRef.current = setTimeout(() => {
-              if (stateRef.current === 'idle' && settingsRef.current.handsFreeMode) {
+              if (
+                stateRef.current === 'idle' &&
+                settingsRef.current.handsFreeMode &&
+                !isSpeakingRef.current &&
+                !isSubmittingRef.current
+              ) {
                 startWakeWordListener();
               }
             }, 250);
@@ -1126,7 +1297,7 @@ export default function App() {
       { continuous: true, isWakeWordMode: true }
     );
 
-    if (recognizer) {
+    if (recognizer && sessionId === activeSessionIdRef.current) {
       recognizerRef.current = recognizer;
       recognizer.start();
     }
@@ -1206,11 +1377,21 @@ export default function App() {
 
   // Manage Wake-Word Loop when assistant is idle
   useEffect(() => {
-    if (assistantState === 'idle' && settings.handsFreeMode) {
+    if (
+      assistantState === 'idle' &&
+      settings.handsFreeMode &&
+      !isSpeakingRef.current &&
+      !isSubmittingRef.current
+    ) {
       startWakeWordListener();
     } else if (assistantState !== 'idle' && recognitionModeRef.current === 'idle_wake') {
+      activeSessionIdRef.current += 1;
       if (recognizerRef.current) {
-        recognizerRef.current.abort();
+        try {
+          recognizerRef.current.abort();
+        } catch {
+          // ignore
+        }
         recognizerRef.current = null;
       }
     }

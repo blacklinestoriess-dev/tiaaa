@@ -301,14 +301,38 @@ export const WakeWordDebugIndicator: React.FC<WakeWordDebugIndicatorProps> = ({
               <Zap className="w-3 h-3 text-amber-400" />
               <span>Wake Word Tests:</span>
             </span>
-            <div className="grid grid-cols-2 gap-1.5">
+            <div className="grid grid-cols-3 gap-1.5">
               <button
                 type="button"
                 id="btn-test-tia-standalone"
                 onClick={() => onTestWakeWord('Tia')}
                 className="px-2 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/30 text-emerald-300 text-[10px] font-semibold text-center cursor-pointer active:scale-95"
               >
-                "Tia" (Valid)
+                "Tia"
+              </button>
+              <button
+                type="button"
+                id="btn-test-dia"
+                onClick={() => onTestWakeWord('Dia')}
+                className="px-2 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/30 text-emerald-300 text-[10px] font-semibold text-center cursor-pointer active:scale-95"
+              >
+                "Dia"
+              </button>
+              <button
+                type="button"
+                id="btn-test-diya"
+                onClick={() => onTestWakeWord('Diya')}
+                className="px-2 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/30 text-emerald-300 text-[10px] font-semibold text-center cursor-pointer active:scale-95"
+              >
+                "Diya"
+              </button>
+              <button
+                type="button"
+                id="btn-test-tiya"
+                onClick={() => onTestWakeWord('Tiya')}
+                className="px-2 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/30 text-emerald-300 text-[10px] font-semibold text-center cursor-pointer active:scale-95"
+              >
+                "Tiya"
               </button>
               <button
                 type="button"
@@ -316,23 +340,15 @@ export const WakeWordDebugIndicator: React.FC<WakeWordDebugIndicatorProps> = ({
                 onClick={() => onTestWakeWord('Hey Tia')}
                 className="px-2 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/30 text-emerald-300 text-[10px] font-semibold text-center cursor-pointer active:scale-95"
               >
-                "Hey Tia" (Valid)
+                "Hey Tia"
               </button>
               <button
                 type="button"
-                id="btn-test-dia-invalid"
-                onClick={() => onTestWakeWord('Dia')}
+                id="btn-test-hello"
+                onClick={() => onTestWakeWord('Hello')}
                 className="px-2 py-1 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 border border-rose-500/30 text-rose-300 text-[10px] font-semibold text-center cursor-pointer active:scale-95"
               >
-                "Dia" (Should NOT wake)
-              </button>
-              <button
-                type="button"
-                id="btn-test-dea-invalid"
-                onClick={() => onTestWakeWord('Dea')}
-                className="px-2 py-1 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 border border-rose-500/30 text-rose-300 text-[10px] font-semibold text-center cursor-pointer active:scale-95"
-              >
-                "Dea" (Should NOT wake)
+                "Hello" (Ignore)
               </button>
             </div>
           </div>

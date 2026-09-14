@@ -44,7 +44,10 @@ export function isTiaVoiceEcho(
   // should never be falsely rejected
   if (candNorm.length < 5) return false;
 
-  // 1. Direct exact or substring match:
+  // Exact match
+  if (candNorm === tiaNorm) return true;
+
+  // 1. Direct substring match:
   // If candidate is a substring of Tia's answer (and has at least 8 chars or 2 words)
   if (tiaNorm.includes(candNorm) && (candNorm.length >= 8 || candNorm.split(' ').length >= 2)) {
     return true;
@@ -59,7 +62,7 @@ export function isTiaVoiceEcho(
   const candWords = candNorm.split(' ').filter((w) => w.length > 2);
   const tiaWords = new Set(tiaNorm.split(' ').filter((w) => w.length > 2));
 
-  if (candWords.length >= 3 && tiaWords.size > 0) {
+  if (candWords.length >= 2 && tiaWords.size > 0) {
     let matchingCount = 0;
     for (const word of candWords) {
       if (tiaWords.has(word)) {
@@ -67,8 +70,37 @@ export function isTiaVoiceEcho(
       }
     }
     const ratio = matchingCount / candWords.length;
-    // If more than 60% of words in candidate transcript match words from Tia's last spoken answer
-    if (ratio >= 0.6) {
+    // If more than 50% of words in candidate transcript match words from Tia's last spoken answer
+    if (ratio >= 0.5) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Validates that candidate speech is neither an acoustic echo of Tia's recent answer
+ * nor a ghost repetition of the previous question from a stale recognition buffer.
+ */
+export function isStaleOrEchoTranscript(
+  candidateTranscript: string,
+  lastTiaSpokenText: string,
+  lastUserQuery: string
+): boolean {
+  if (!candidateTranscript) return true;
+  const candNorm = normalizeTranscript(candidateTranscript);
+  if (!candNorm || candNorm.length < 2) return true;
+
+  // 1. Check if candidate is echo of Tia's recent spoken answer
+  if (isTiaVoiceEcho(candidateTranscript, lastTiaSpokenText)) {
+    return true;
+  }
+
+  // 2. Check if candidate is a ghost repetition of the previous question
+  if (lastUserQuery) {
+    const prevNorm = normalizeTranscript(lastUserQuery);
+    if (prevNorm && candNorm === prevNorm) {
       return true;
     }
   }
@@ -79,21 +111,12 @@ export function isTiaVoiceEcho(
 /**
  * Checks if a transcript begins with the "Tia" or "Hey Tia" wake phrase.
  * 
- * Supported wake phrases:
- * - "Tia"
- * - "Hey Tia"
- * - "Hey, Tia"
- * - "Tiya"
- * - "Hey Tiya"
- * - "Hi Tia", "Hello Tia", "Suno Tia"
- * - Devanagari: "टिया", "टीया", "हे टिया", "सुनो टिया"
- * 
- * STRICT NEGATIVE CONSTRAINTS:
- * - "Dia" must NOT wake Tia.
- * - "Dea" must NOT wake Tia.
- * - "Diya" must NOT wake Tia.
- * - "Tea" must NOT wake Tia.
- * - Random similar words must NOT wake Tia.
+ * Supported wake phrases & phonetic variants:
+ * - "Tia", "Tiya", "Teya"
+ * - "Dia", "Diya", "Deea", "Dya"
+ * - "Hey Tia", "Hey Dia", "Hey Diya", "Hey Tiya", "Hey Teya"
+ * - "Hi Tia", "Hello Tia", "Suno Tia", "Ok Tia"
+ * - Devanagari: "टिया", "टीया", "दिया", "दीया", "हे टिया", "सुनो टिया"
  */
 export function detectWakeWord(rawTranscript: string): WakeWordMatch {
   if (!rawTranscript) return { detected: false, remainderQuery: '' };
@@ -106,8 +129,25 @@ export function detectWakeWord(rawTranscript: string): WakeWordMatch {
   const tokens = normalized.split(' ');
   if (tokens.length === 0) return { detected: false, remainderQuery: '' };
 
-  const isTiaToken = (t: string): boolean =>
-    t === 'tia' || t === 'tiya' || t === 'टिया' || t === 'टीया';
+  const isTiaToken = (t: string): boolean => {
+    // Exact accepted phonetic variations of Tia
+    if (
+      t === 'tia' ||
+      t === 'tiya' ||
+      t === 'teya' ||
+      t === 'dia' ||
+      t === 'diya' ||
+      t === 'deea' ||
+      t === 'dya' ||
+      t === 'टिया' ||
+      t === 'टीया' ||
+      t === 'दिया' ||
+      t === 'दीया'
+    ) {
+      return true;
+    }
+    return false;
+  };
 
   const isGreetingPrefix = (t: string): boolean =>
     t === 'hey' ||
@@ -116,18 +156,21 @@ export function detectWakeWord(rawTranscript: string): WakeWordMatch {
     t === 'suno' ||
     t === 'ok' ||
     t === 'okay' ||
+    t === 'ay' ||
+    t === 'oye' ||
     t === 'हे' ||
-    t === 'सुनो';
+    t === 'सुनो' ||
+    t === 'ओए';
 
   let matchedWordCount = 0;
   let matchedPhrase = '';
 
-  // 1. Standalone "Tia" / "Tiya"
+  // 1. Standalone "Tia" / "Dia" / "Diya" / "Tiya" / "Teya"
   if (isTiaToken(tokens[0])) {
     matchedWordCount = 1;
     matchedPhrase = tokens[0];
   }
-  // 2. "Hey Tia" / "Hey Tiya" / "Hi Tia" / "Hello Tia" / "Suno Tia"
+  // 2. "Hey Tia" / "Hey Dia" / "Hey Diya" / "Hi Tia" / "Hello Tia" / "Suno Tia"
   else if (isGreetingPrefix(tokens[0]) && tokens.length > 1 && isTiaToken(tokens[1])) {
     matchedWordCount = 2;
     matchedPhrase = `${tokens[0]} ${tokens[1]}`;
@@ -136,10 +179,12 @@ export function detectWakeWord(rawTranscript: string): WakeWordMatch {
   if (matchedWordCount > 0) {
     // Extract remainder from raw input to preserve casing and full query
     let remainder = '';
-    const normLower = raw.toLowerCase();
-    const phraseIdx = normLower.indexOf(matchedPhrase.toLowerCase());
-    if (phraseIdx !== -1) {
-      const rawAfter = raw.slice(phraseIdx + matchedPhrase.length);
+    const words = matchedPhrase.split(' ');
+    const pattern = '^\\s*' + words.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('[\\s,.:;!?\'"’\\-]+');
+    const rx = new RegExp(pattern, 'i');
+    const m = raw.match(rx);
+    if (m) {
+      const rawAfter = raw.slice(m[0].length);
       remainder = rawAfter
         .replace(/^[\s,.:;!?\'"’\-—]+/, '')
         .replace(/^(?:suno|sun|suniye|ji|bolo|batao|bataiye|listen|सुनो|सुनिए|जी|बोलो|बताओ|बताइए)[\s,.:;!?\'"’\-—]*/i, '')
@@ -152,7 +197,7 @@ export function detectWakeWord(rawTranscript: string): WakeWordMatch {
     return {
       detected: true,
       remainderQuery: remainder,
-      matchedPhrase: matchedPhrase === 'टिया' ? 'टिया' : 'Tia',
+      matchedPhrase: matchedPhrase.charAt(0).toUpperCase() + matchedPhrase.slice(1),
     };
   }
 

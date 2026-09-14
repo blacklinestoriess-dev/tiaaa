@@ -224,6 +224,10 @@ export function createSpeechRecognizer(
         try {
           isRunning = false;
           isAborting = true;
+          // Detach listeners immediately to prevent delayed/zombie events
+          recognition.onresult = null;
+          recognition.onerror = null;
+          recognition.onend = null;
           recognition.abort();
         } catch {
           // ignore
@@ -236,24 +240,23 @@ export function createSpeechRecognizer(
             return;
           }
           isAborting = true;
+          // Detach onresult immediately so results cannot leak while waiting to abort
+          recognition.onresult = null;
+          recognition.onerror = null;
+
           let resolved = false;
           const finish = () => {
             if (!resolved) {
               resolved = true;
+              recognition.onend = null;
               resolve();
             }
           };
           const safetyTimer = setTimeout(finish, 150);
-          const originalOnEnd = recognition.onend;
           recognition.onend = () => {
             clearTimeout(safetyTimer);
             isRunning = false;
             isAborting = false;
-            try {
-              originalOnEnd?.call(recognition);
-            } catch {
-              // ignore
-            }
             finish();
           };
           try {
