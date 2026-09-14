@@ -23,6 +23,11 @@ export interface WakeWordDebugInfo {
   lastRecognizedTimestamp: string;
   lastWakeDetected: string | null;
   activeLangCode: string;
+  // Diagnostic fields for each new result
+  lastRawResult?: string;
+  lastMatchedAlias?: string;
+  lastAlternatives?: string[];
+  wakeTriggered?: boolean;
   // Voice feedback loop diagnostics
   currentVoiceState?: VoiceState;
   isTtsSpeaking?: boolean;
@@ -212,10 +217,10 @@ export const WakeWordDebugIndicator: React.FC<WakeWordDebugIndicatorProps> = ({
             </span>
           </div>
 
-          {/* Diagnostic: Last Transcript */}
+          {/* Diagnostic: Last Transcript & Current Raw Result */}
           <div className="space-y-1 py-1 border-b border-white/5">
             <div className="flex items-center justify-between text-slate-400">
-              <span className="font-semibold text-slate-300">Last transcript:</span>
+              <span className="font-semibold text-slate-300">Last Speech Result:</span>
               <span className="text-[10px] text-slate-500">
                 {debugInfo.lastRecognizedTimestamp || 'None'}
               </span>
@@ -233,6 +238,24 @@ export const WakeWordDebugIndicator: React.FC<WakeWordDebugIndicatorProps> = ({
                 'No speech received yet'
               )}
             </div>
+            {debugInfo.lastAlternatives && debugInfo.lastAlternatives.length > 1 && (
+              <div className="text-[10px] text-slate-400">
+                <span className="text-slate-500">Alternatives:</span>{' '}
+                {debugInfo.lastAlternatives.map((a, i) => (
+                  <span key={i} className="inline-block px-1 py-0.5 mr-1 mb-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">
+                    {a}
+                  </span>
+                ))}
+              </div>
+            )}
+            {debugInfo.lastMatchedAlias && (
+              <div className="text-[10px] text-emerald-400 flex items-center space-x-1">
+                <span>Matched Alias:</span>
+                <span className="font-bold px-1.5 py-0.5 rounded bg-emerald-500/20 border border-emerald-500/30">
+                  {debugInfo.lastMatchedAlias}
+                </span>
+              </div>
+            )}
           </div>
 
           {/* Diagnostic: Status */}
@@ -299,7 +322,7 @@ export const WakeWordDebugIndicator: React.FC<WakeWordDebugIndicatorProps> = ({
           <div className="pt-2 border-t border-white/10 space-y-1.5">
             <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider flex items-center space-x-1">
               <Zap className="w-3 h-3 text-amber-400" />
-              <span>Wake Word Tests:</span>
+              <span>Wake Word Tests (Latin & Devanagari):</span>
             </span>
             <div className="grid grid-cols-3 gap-1.5">
               <button
@@ -336,11 +359,59 @@ export const WakeWordDebugIndicator: React.FC<WakeWordDebugIndicatorProps> = ({
               </button>
               <button
                 type="button"
+                id="btn-test-tea"
+                onClick={() => onTestWakeWord('Tea')}
+                className="px-2 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/30 text-emerald-300 text-[10px] font-semibold text-center cursor-pointer active:scale-95"
+              >
+                "Tea"
+              </button>
+              <button
+                type="button"
+                id="btn-test-piya"
+                onClick={() => onTestWakeWord('Piya')}
+                className="px-2 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/30 text-emerald-300 text-[10px] font-semibold text-center cursor-pointer active:scale-95"
+              >
+                "Piya"
+              </button>
+              <button
+                type="button"
                 id="btn-test-hey-tia"
                 onClick={() => onTestWakeWord('Hey Tia')}
                 className="px-2 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/30 text-emerald-300 text-[10px] font-semibold text-center cursor-pointer active:scale-95"
               >
                 "Hey Tia"
+              </button>
+              <button
+                type="button"
+                id="btn-test-dev-tiya"
+                onClick={() => onTestWakeWord('टिया')}
+                className="px-2 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/30 text-emerald-300 text-[10px] font-semibold text-center cursor-pointer active:scale-95"
+              >
+                "टिया"
+              </button>
+              <button
+                type="button"
+                id="btn-test-dev-piya"
+                onClick={() => onTestWakeWord('पिया')}
+                className="px-2 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/30 text-emerald-300 text-[10px] font-semibold text-center cursor-pointer active:scale-95"
+              >
+                "पिया"
+              </button>
+              <button
+                type="button"
+                id="btn-test-dev-diya"
+                onClick={() => onTestWakeWord('दीया')}
+                className="px-2 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/30 text-emerald-300 text-[10px] font-semibold text-center cursor-pointer active:scale-95"
+              >
+                "दीया"
+              </button>
+              <button
+                type="button"
+                id="btn-test-dev-t"
+                onClick={() => onTestWakeWord('टी')}
+                className="px-2 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/30 text-emerald-300 text-[10px] font-semibold text-center cursor-pointer active:scale-95"
+              >
+                "टी"
               </button>
               <button
                 type="button"

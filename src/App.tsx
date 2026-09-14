@@ -33,6 +33,7 @@ import {
 } from './services/speechSynthesis';
 import {
   detectWakeWord,
+  evaluateWakeAlternatives,
   playWakeChime,
   checkMicrophonePermission,
   requestMicrophoneAccess,
@@ -236,6 +237,7 @@ export default function App() {
   const lastTiaSpeechEndTimeRef = useRef<number>(0);
   const lastSubmittedQuestionRef = useRef<string>('');
   const isComponentMounted = useRef(true);
+  const wakeTriggeredRef = useRef<boolean>(false);
 
   // Sync ref for state in callbacks
   const stateRef = useRef(assistantState);
@@ -1135,6 +1137,7 @@ export default function App() {
       return;
     }
 
+    wakeTriggeredRef.current = false;
     const sessionId = ++activeSessionIdRef.current;
 
     if (recognizerRef.current) {
@@ -1164,7 +1167,101 @@ export default function App() {
       isListening: false,
       recognizerStatus: 'WAKE_WORD_LISTENING',
       activeLangCode: activeLang,
+      wakeTriggered: false,
     }));
+
+    const handleWakeEvaluation = (
+      alternatives: string[],
+      isFinal: boolean
+    ) => {
+      if (sessionId !== activeSessionIdRef.current) return;
+      if (wakeTriggeredRef.current) return;
+      if (
+        stateRef.current !== 'idle' ||
+        isSpeakingRef.current ||
+        isSubmittingRef.current
+      ) {
+        return;
+      }
+
+      const evalResult = evaluateWakeAlternatives(
+        alternatives,
+        sessionId,
+        isFinal
+      );
+
+      console.log(
+        `[WakeDetector] Session: ${sessionId} | Status: ${isFinal ? 'final' : 'interim'} | Raw: "${evalResult.rawResult}" | Normalized: "${evalResult.normalizedResult}" | Alternatives: ${JSON.stringify(alternatives)} | Matched: "${evalResult.matchedPhrase || 'none'}" | Wake: ${evalResult.detected} | wakeTriggered: ${wakeTriggeredRef.current}`
+      );
+
+      setDebugInfo((prev) => ({
+        ...prev,
+        lastRecognizedSpeech: evalResult.rawResult,
+        lastRecognizedTimestamp: new Date().toLocaleTimeString(),
+        lastAlternatives: alternatives,
+        lastMatchedAlias: evalResult.matchedPhrase || undefined,
+      }));
+
+      if (evalResult.detected) {
+        // Prevent duplicate firing for the same spoken utterance (e.g. interim then final)
+        wakeTriggeredRef.current = true;
+        activeSessionIdRef.current += 1;
+
+        if (recognizerRef.current) {
+          try {
+            recognizerRef.current.abort();
+          } catch {
+            // ignore
+          }
+          recognizerRef.current = null;
+        }
+
+        const matchedWord = evalResult.matchedPhrase || 'Tia';
+        setDebugInfo((prev) => ({
+          ...prev,
+          lastWakeDetected: `"${matchedWord}" detected at ${new Date().toLocaleTimeString()}`,
+          recognizerStatus: `WAKE_WORD_DETECTED: "${matchedWord}"`,
+          wakeTriggered: true,
+        }));
+
+        // 1. Play audio wake chime if enabled
+        if (settingsRef.current.wakeChimeEnabled) {
+          playWakeChime();
+        }
+
+        // 2. If single-breath question (e.g. "Tia, what is GDP?" or "Dia, what is GDP?"):
+        if (evalResult.remainderQuery && evalResult.remainderQuery.length > 2) {
+          const query = evalResult.remainderQuery.trim();
+          // Check if query is an echo of Tia's recent response
+          if (
+            isStaleOrEchoTranscript(
+              query,
+              lastTiaSpokenTextRef.current,
+              lastSubmittedQuestionRef.current
+            )
+          ) {
+            console.debug('Discarded echo question in wake remainder:', query);
+            return;
+          }
+
+          setAssistantState('thinking');
+          setLastUserQuery(query);
+          setDebugInfo((prev) => ({
+            ...prev,
+            wakeWordActive: false,
+            isListening: false,
+            recognizerStatus: 'PROCESSING',
+          }));
+          submitToTiaRef.current(query);
+          return;
+        }
+
+        // 3. User said "Tia", "Dia", "Diya", "Tiya", or "Hey Tia" (standalone wake word)
+        // Transition cleanly to question listening!
+        setAssistantState('wake_word_detected');
+        transitionToQuestionListening();
+      }
+    };
 
     const recognizer = createSpeechRecognizer(
       settings.languagePreference,
@@ -1179,76 +1276,11 @@ export default function App() {
             recognizerStatus: 'WAKE_WORD_LISTENING',
           }));
         },
-        onResult: (transcript) => {
-          if (sessionId !== activeSessionIdRef.current) return;
-          if (
-            stateRef.current !== 'idle' ||
-            isSpeakingRef.current ||
-            isSubmittingRef.current
-          ) {
-            return;
-          }
-
-          setDebugInfo((prev) => ({
-            ...prev,
-            lastRecognizedSpeech: transcript,
-            lastRecognizedTimestamp: new Date().toLocaleTimeString(),
-          }));
-
-          const match = detectWakeWord(transcript);
-          if (match.detected) {
-            activeSessionIdRef.current += 1;
-            setDebugInfo((prev) => ({
-              ...prev,
-              lastWakeDetected: `"${match.matchedPhrase || 'Tia'}" detected at ${new Date().toLocaleTimeString()}`,
-              recognizerStatus: `WAKE_WORD_DETECTED: "${match.matchedPhrase || 'Tia'}"`,
-            }));
-
-            // 1. Play audio wake chime if enabled
-            if (settingsRef.current.wakeChimeEnabled) {
-              playWakeChime();
-            }
-
-            // 2. If single-breath question (e.g. "Tia, what is GDP?" or "Dia, what is GDP?"):
-            if (match.remainderQuery && match.remainderQuery.length > 2) {
-              const query = match.remainderQuery.trim();
-              // Check if query is an echo of Tia's recent response
-              if (
-                isStaleOrEchoTranscript(
-                  query,
-                  lastTiaSpokenTextRef.current,
-                  lastSubmittedQuestionRef.current
-                )
-              ) {
-                console.debug('Discarded echo question in wake remainder:', query);
-                return;
-              }
-
-              if (recognizerRef.current) {
-                try {
-                  recognizerRef.current.abort();
-                } catch {
-                  // ignore
-                }
-                recognizerRef.current = null;
-              }
-              setAssistantState('thinking');
-              setLastUserQuery(query);
-              setDebugInfo((prev) => ({
-                ...prev,
-                wakeWordActive: false,
-                isListening: false,
-                recognizerStatus: 'PROCESSING',
-              }));
-              submitToTiaRef.current(query);
-              return;
-            }
-
-            // 3. User said "Tia", "Dia", "Diya", "Tiya", or "Hey Tia" (standalone wake word)
-            // Transition cleanly to question listening!
-            setAssistantState('wake_word_detected');
-            transitionToQuestionListening();
-          }
+        onNewResult: ({ alternatives, isFinal }) => {
+          handleWakeEvaluation(alternatives, isFinal);
+        },
+        onResult: (transcript, isFinal) => {
+          handleWakeEvaluation([transcript], isFinal);
         },
         onError: (errMsg, errCode) => {
           if (sessionId !== activeSessionIdRef.current) return;
@@ -1273,12 +1305,15 @@ export default function App() {
         },
         onEnd: () => {
           if (sessionId !== activeSessionIdRef.current) return;
+          if (wakeTriggeredRef.current) return;
+
           // Restart wake word listener if still in idle state and hands-free is enabled
           if (
             stateRef.current === 'idle' &&
             settingsRef.current.handsFreeMode &&
             !isSpeakingRef.current &&
             !isSubmittingRef.current &&
+            !wakeTriggeredRef.current &&
             isComponentMounted.current
           ) {
             wakeRestartTimerRef.current = setTimeout(() => {
@@ -1286,7 +1321,8 @@ export default function App() {
                 stateRef.current === 'idle' &&
                 settingsRef.current.handsFreeMode &&
                 !isSpeakingRef.current &&
-                !isSubmittingRef.current
+                !isSubmittingRef.current &&
+                !wakeTriggeredRef.current
               ) {
                 startWakeWordListener();
               }
@@ -1294,7 +1330,7 @@ export default function App() {
           }
         },
       },
-      { continuous: true, isWakeWordMode: true }
+      { continuous: true, isWakeWordMode: true, maxAlternatives: 5 }
     );
 
     if (recognizer && sessionId === activeSessionIdRef.current) {
@@ -1317,32 +1353,35 @@ export default function App() {
         lastRecognizedTimestamp: new Date().toLocaleTimeString(),
       }));
 
-      const match = detectWakeWord(simulatedPhrase);
-      if (match.detected) {
+      const evalResult = evaluateWakeAlternatives([simulatedPhrase], activeSessionIdRef.current, true);
+      if (evalResult.detected) {
+        const matchedName = evalResult.matchedPhrase || simulatedPhrase;
         setDebugInfo((prev) => ({
           ...prev,
-          lastWakeDetected: `[TEST] "${match.matchedPhrase || simulatedPhrase}" detected at ${new Date().toLocaleTimeString()}`,
-          recognizerStatus: `WAKE_WORD_DETECTED: "${match.matchedPhrase || simulatedPhrase}"`,
+          lastWakeDetected: `[TEST] "${matchedName}" detected at ${new Date().toLocaleTimeString()}`,
+          recognizerStatus: `WAKE_WORD_DETECTED: "${matchedName}"`,
+          lastMatchedAlias: matchedName,
+          wakeTriggered: true,
         }));
 
         if (settingsRef.current.wakeChimeEnabled) {
           playWakeChime();
         }
 
-        if (match.remainderQuery && match.remainderQuery.length > 2) {
+        if (evalResult.remainderQuery && evalResult.remainderQuery.length > 2) {
           if (recognizerRef.current) {
             recognizerRef.current.abort();
             recognizerRef.current = null;
           }
           setAssistantState('thinking');
-          setLastUserQuery(match.remainderQuery);
+          setLastUserQuery(evalResult.remainderQuery);
           setDebugInfo((prev) => ({
             ...prev,
             wakeWordActive: false,
             isListening: false,
             recognizerStatus: 'PROCESSING',
           }));
-          submitToTiaRef.current(match.remainderQuery);
+          submitToTiaRef.current(evalResult.remainderQuery);
         } else {
           setAssistantState('wake_word_detected');
           transitionToQuestionListening();
@@ -1351,6 +1390,7 @@ export default function App() {
         setDebugInfo((prev) => ({
           ...prev,
           lastWakeDetected: null,
+          lastMatchedAlias: undefined,
           recognizerStatus: `REJECTED: "${simulatedPhrase}" is NOT a wake phrase`,
         }));
       }

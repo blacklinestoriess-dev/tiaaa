@@ -82,11 +82,20 @@ export interface SpeechRecognitionController {
 export interface SpeechRecognitionOptions {
   continuous?: boolean;
   isWakeWordMode?: boolean;
+  maxAlternatives?: number;
+  lang?: string;
+}
+
+export interface NewSpeechResult {
+  alternatives: string[];
+  isFinal: boolean;
+  resultIndex: number;
 }
 
 export interface SpeechRecognitionCallbacks {
   onStart?: () => void;
   onResult?: (transcript: string, isFinal: boolean) => void;
+  onNewResult?: (newResult: NewSpeechResult) => void;
   onError?: (error: string, code?: string) => void;
   onEnd?: () => void;
 }
@@ -115,8 +124,9 @@ export function createSpeechRecognizer(
     const recognition = new SpeechConstructor();
     recognition.continuous = options.continuous ?? false;
     recognition.interimResults = true;
-    recognition.maxAlternatives = 1;
-    recognition.lang = getRecognitionLanguageCode(langPref);
+    // Inspect multiple alternatives in wake-word mode to catch phonetic variations like "tea", "tiya", "पिया"
+    recognition.maxAlternatives = options.maxAlternatives ?? (options.isWakeWordMode ? 5 : 1);
+    recognition.lang = options.lang || getRecognitionLanguageCode(langPref);
 
     let isRunning = false;
     let isAborting = false;
@@ -128,24 +138,51 @@ export function createSpeechRecognizer(
     };
 
     recognition.onresult = (event: ISpeechRecognitionEvent) => {
-      let interim = '';
-      let final = '';
-
-      // Standard Web Speech API: accumulate all results across the session
-      for (let i = 0; i < event.results.length; ++i) {
-        const item = event.results[i];
-        if (item.isFinal) {
-          final += item[0].transcript + ' ';
-        } else {
-          interim += item[0].transcript;
+      // 1. Inspect each NEW SpeechRecognition result independently with all recognition alternatives
+      if (callbacks.onNewResult) {
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+          const res = event.results[i];
+          if (!res) continue;
+          const alts: string[] = [];
+          for (let a = 0; a < res.length; ++a) {
+            if (res[a] && typeof res[a].transcript === 'string') {
+              const text = res[a].transcript.trim();
+              if (text) {
+                alts.push(text);
+              }
+            }
+          }
+          if (alts.length > 0) {
+            callbacks.onNewResult({
+              alternatives: alts,
+              isFinal: Boolean(res.isFinal),
+              resultIndex: i,
+            });
+          }
         }
       }
 
-      const fullTranscript = `${final} ${interim}`.trim();
-      const hasFinal = Boolean(final.trim());
+      // 2. Standard cumulative transcript calculation for non-wake question listeners
+      if (callbacks.onResult) {
+        let interim = '';
+        let final = '';
 
-      if (fullTranscript) {
-        callbacks.onResult?.(fullTranscript, hasFinal);
+        for (let i = 0; i < event.results.length; ++i) {
+          const item = event.results[i];
+          if (!item || !item[0]) continue;
+          if (item.isFinal) {
+            final += item[0].transcript + ' ';
+          } else {
+            interim += item[0].transcript;
+          }
+        }
+
+        const fullTranscript = `${final} ${interim}`.trim();
+        const hasFinal = Boolean(final.trim());
+
+        if (fullTranscript) {
+          callbacks.onResult(fullTranscript, hasFinal);
+        }
       }
     };
 

@@ -1,7 +1,7 @@
 /**
  * Wake Word and Audio Cue services for Tia Assistant.
- * Provides on-device "Hey Tia" / "Tia" wake phrase spotting, natural audio chimes,
- * and browser microphone verification and permission management.
+ * Provides on-device "Tia" wake phrase detection supporting English/Latin and Hindi/Devanagari
+ * variants, audio wake chime playback, and browser microphone management.
  */
 
 export interface WakeWordMatch {
@@ -10,24 +10,94 @@ export interface WakeWordMatch {
   matchedPhrase?: string;
 }
 
+export interface WakeEvaluationResult {
+  detected: boolean;
+  matchedPhrase?: string;
+  remainderQuery: string;
+  matchedAlternative?: string;
+  rawResult: string;
+  normalizedResult: string;
+}
+
+/**
+ * Controlled Latin wake word variants:
+ * tia, tiya, tiyaa, teya, teeya, dia, diya, diyaa, piya,数据库, piyaa, ti, tea
+ */
+export const LATIN_WAKE_WORDS: readonly string[] = [
+  'tia',
+  'tiya',
+  'tiyaa',
+  'teya',
+  'teeya',
+  'dia',
+  'diya',
+  'diyaa',
+  'piya',
+  'piyaa',
+  'ti',
+  'tea',
+];
+
+const LATIN_WAKE_SET = new Set(LATIN_WAKE_WORDS);
+
+/**
+ * Controlled Devanagari wake word variants:
+ * टिया, टियाा, टीया, तिया, तियाा, दिया, दीया, पिया, पीया, टी
+ */
+export const DEVANAGARI_WAKE_WORDS: readonly string[] = [
+  'टिया',
+  'टियाा',
+  'टीया',
+  'तिया',
+  'तियाा',
+  'दिया',
+  'दीया',
+  'पिया',
+  'पीया',
+  'टी',
+];
+
+const DEVANAGARI_WAKE_SET = new Set(DEVANAGARI_WAKE_WORDS);
+
+/**
+ * Greeting prefixes supported in Latin and Devanagari
+ */
+export const GREETING_PREFIXES: readonly string[] = [
+  'hey',
+  'hi',
+  'hello',
+  'suno',
+  'ok',
+  'okay',
+  'ay',
+  'oye',
+  'हे',
+  'सुनो',
+  'नमस्ते',
+  'ओए',
+];
+
+const GREETING_SET = new Set(GREETING_PREFIXES);
+
 /**
  * Controlled transcript normalization:
- * - lowercase
- * - remove punctuation
- * - normalize spaces
+ * - Unicode NFKC normalization
+ * - Convert Latin text to lowercase
+ * - Remove harmless punctuation (preserving Devanagari Unicode characters)
+ * - Trim and normalize repeated whitespace
  */
 export function normalizeTranscript(text: string): string {
   if (!text) return '';
   return text
+    .normalize('NFKC')
     .toLowerCase()
-    .replace(/[.,\/#!$%\^&\*;:{}=\-_`~()?"'’“”]/g, ' ')
+    .replace(/[\u0964\u0965.,\/#!$%\^&\*;:{}=\-_`~()?"'’“”\r\n\t]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
 }
 
 /**
- * Detects whether a speech transcript is an acoustic echo or repetition of Tia's recent response.
- * Prevents microphone feedback loops where Tia's own voice through speakers is captured as user input.
+ * Detects whether candidate speech is an echo of Tia's recent spoken answer.
  */
 export function isTiaVoiceEcho(
   candidateTranscript: string,
@@ -39,26 +109,20 @@ export function isTiaVoiceEcho(
   const tiaNorm = normalizeTranscript(lastTiaSpokenText);
 
   if (!candNorm || !tiaNorm) return false;
-
-  // Short casual conversational affirmations from real users (e.g. "ok", "haan", "nahi", "why")
-  // should never be falsely rejected
   if (candNorm.length < 5) return false;
 
   // Exact match
   if (candNorm === tiaNorm) return true;
 
-  // 1. Direct substring match:
-  // If candidate is a substring of Tia's answer (and has at least 8 chars or 2 words)
+  // Substring match
   if (tiaNorm.includes(candNorm) && (candNorm.length >= 8 || candNorm.split(' ').length >= 2)) {
     return true;
   }
-
-  // 2. Tia's answer is inside candidate transcript
   if (candNorm.includes(tiaNorm)) {
     return true;
   }
 
-  // 3. High word overlap test for partial captures (e.g. speaker tail captured on mic)
+  // High word overlap
   const candWords = candNorm.split(' ').filter((w) => w.length > 2);
   const tiaWords = new Set(tiaNorm.split(' ').filter((w) => w.length > 2));
 
@@ -69,9 +133,7 @@ export function isTiaVoiceEcho(
         matchingCount++;
       }
     }
-    const ratio = matchingCount / candWords.length;
-    // If more than 50% of words in candidate transcript match words from Tia's last spoken answer
-    if (ratio >= 0.5) {
+    if (matchingCount / candWords.length >= 0.5) {
       return true;
     }
   }
@@ -80,8 +142,7 @@ export function isTiaVoiceEcho(
 }
 
 /**
- * Validates that candidate speech is neither an acoustic echo of Tia's recent answer
- * nor a ghost repetition of the previous question from a stale recognition buffer.
+ * Validates that candidate speech is neither an acoustic echo nor a duplicate of the previous query.
  */
 export function isStaleOrEchoTranscript(
   candidateTranscript: string,
@@ -92,12 +153,10 @@ export function isStaleOrEchoTranscript(
   const candNorm = normalizeTranscript(candidateTranscript);
   if (!candNorm || candNorm.length < 2) return true;
 
-  // 1. Check if candidate is echo of Tia's recent spoken answer
   if (isTiaVoiceEcho(candidateTranscript, lastTiaSpokenText)) {
     return true;
   }
 
-  // 2. Check if candidate is a ghost repetition of the previous question
   if (lastUserQuery) {
     const prevNorm = normalizeTranscript(lastUserQuery);
     if (prevNorm && candNorm === prevNorm) {
@@ -109,14 +168,12 @@ export function isStaleOrEchoTranscript(
 }
 
 /**
- * Checks if a transcript begins with the "Tia" or "Hey Tia" wake phrase.
- * 
- * Supported wake phrases & phonetic variants:
- * - "Tia", "Tiya", "Teya"
- * - "Dia", "Diya", "Deea", "Dya"
- * - "Hey Tia", "Hey Dia", "Hey Diya", "Hey Tiya", "Hey Teya"
- * - "Hi Tia", "Hello Tia", "Suno Tia", "Ok Tia"
- * - Devanagari: "टिया", "टीया", "दिया", "दीया", "हे टिया", "सुनो टिया"
+ * Checks a single speech recognition result for any approved wake-word alias.
+ * Supports:
+ * 1. Standalone wake words (Latin & Devanagari)
+ * 2. Greeting + wake word phrases ("hey tia", "hey diya", "hey tea", "हे टिया", etc.)
+ * 3. Wake word followed by question query ("Tia, what is inflation?")
+ * 4. Multi-word current result containing an approved wake alias as a separate word
  */
 export function detectWakeWord(rawTranscript: string): WakeWordMatch {
   if (!rawTranscript) return { detected: false, remainderQuery: '' };
@@ -126,82 +183,127 @@ export function detectWakeWord(rawTranscript: string): WakeWordMatch {
   const normalized = normalizeTranscript(raw);
   if (!normalized) return { detected: false, remainderQuery: '' };
 
-  const tokens = normalized.split(' ');
+  const tokens = normalized.split(' ').filter(Boolean);
   if (tokens.length === 0) return { detected: false, remainderQuery: '' };
-
-  const isTiaToken = (t: string): boolean => {
-    // Exact accepted phonetic variations of Tia
-    if (
-      t === 'tia' ||
-      t === 'tiya' ||
-      t === 'teya' ||
-      t === 'dia' ||
-      t === 'diya' ||
-      t === 'deea' ||
-      t === 'dya' ||
-      t === 'टिया' ||
-      t === 'टीया' ||
-      t === 'दिया' ||
-      t === 'दीया'
-    ) {
-      return true;
-    }
-    return false;
-  };
-
-  const isGreetingPrefix = (t: string): boolean =>
-    t === 'hey' ||
-    t === 'hi' ||
-    t === 'hello' ||
-    t === 'suno' ||
-    t === 'ok' ||
-    t === 'okay' ||
-    t === 'ay' ||
-    t === 'oye' ||
-    t === 'हे' ||
-    t === 'सुनो' ||
-    t === 'ओए';
 
   let matchedWordCount = 0;
   let matchedPhrase = '';
+  let matchStartIndex = -1;
 
-  // 1. Standalone "Tia" / "Dia" / "Diya" / "Tiya" / "Teya"
-  if (isTiaToken(tokens[0])) {
-    matchedWordCount = 1;
-    matchedPhrase = tokens[0];
-  }
-  // 2. "Hey Tia" / "Hey Dia" / "Hey Diya" / "Hi Tia" / "Hello Tia" / "Suno Tia"
-  else if (isGreetingPrefix(tokens[0]) && tokens.length > 1 && isTiaToken(tokens[1])) {
-    matchedWordCount = 2;
-    matchedPhrase = `${tokens[0]} ${tokens[1]}`;
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i];
+    const prevToken = i > 0 ? tokens[i - 1] : undefined;
+
+    // Pattern A: Greeting + Wake Token ("hey tia", "hey diya", "hey tea", "हे टिया", "नमस्ते टिया", etc.)
+    if (prevToken && GREETING_SET.has(prevToken) && (LATIN_WAKE_SET.has(token) || DEVANAGARI_WAKE_SET.has(token))) {
+      matchedWordCount = 2;
+      matchedPhrase = `${prevToken} ${token}`;
+      matchStartIndex = i - 1;
+      break;
+    }
+
+    // Pattern B: Direct Wake Token
+    if (LATIN_WAKE_SET.has(token) || DEVANAGARI_WAKE_SET.has(token)) {
+      // For short common English words ('ti' and 'tea'), ensure they are either:
+      // - The only word in the result
+      // - At index 0
+      // - Preceded by a greeting prefix
+      // to avoid false wake on arbitrary conversation
+      if (token === 'ti' || token === 'tea') {
+        if (tokens.length === 1 || i === 0 || (prevToken && GREETING_SET.has(prevToken))) {
+          matchedWordCount = 1;
+          matchedPhrase = token;
+          matchStartIndex = i;
+          break;
+        }
+      } else {
+        // Distinct name aliases ('tia', 'tiya', 'dia', 'diya', 'piya', 'टिया', 'तिया', 'दिया', 'दीया', 'पिया', 'टी', etc.)
+        matchedWordCount = 1;
+        matchedPhrase = token;
+        matchStartIndex = i;
+        break;
+      }
+    }
   }
 
-  if (matchedWordCount > 0) {
-    // Extract remainder from raw input to preserve casing and full query
+  if (matchedWordCount > 0 && matchStartIndex >= 0) {
+    // Extract remainder from raw input to preserve original casing and characters
     let remainder = '';
     const words = matchedPhrase.split(' ');
-    const pattern = '^\\s*' + words.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('[\\s,.:;!?\'"’\\-]+');
+    const pattern = words
+      .map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+      .join('[\\s,.:;!?\'"’\\-]+');
     const rx = new RegExp(pattern, 'i');
     const m = raw.match(rx);
-    if (m) {
-      const rawAfter = raw.slice(m[0].length);
+
+    if (m && m.index !== undefined) {
+      const rawAfter = raw.slice(m.index + m[0].length);
       remainder = rawAfter
         .replace(/^[\s,.:;!?\'"’\-—]+/, '')
         .replace(/^(?:suno|sun|suniye|ji|bolo|batao|bataiye|listen|सुनो|सुनिए|जी|बोलो|बताओ|बताइए)[\s,.:;!?\'"’\-—]*/i, '')
         .replace(/^[\s,.:;!?\'"’\-—]+/, '')
         .trim();
     } else {
-      remainder = tokens.slice(matchedWordCount).join(' ').trim();
+      remainder = tokens.slice(matchStartIndex + matchedWordCount).join(' ').trim();
     }
+
+    // Clean display name
+    const displayMatched = matchedPhrase
+      .split(' ')
+      .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+      .join(' ');
 
     return {
       detected: true,
       remainderQuery: remainder,
-      matchedPhrase: matchedPhrase.charAt(0).toUpperCase() + matchedPhrase.slice(1),
+      matchedPhrase: displayMatched,
     };
   }
 
   return { detected: false, remainderQuery: '' };
+}
+
+/**
+ * Evaluates all speech recognition alternatives for a NEW SpeechRecognition result.
+ * Checks alternatives in order: if any approved alias matches, triggers wake immediately.
+ */
+export function evaluateWakeAlternatives(
+  alternatives: string[],
+  sessionId?: number,
+  isFinal?: boolean
+): WakeEvaluationResult {
+  if (!alternatives || alternatives.length === 0) {
+    return {
+      detected: false,
+      remainderQuery: '',
+      rawResult: '',
+      normalizedResult: '',
+    };
+  }
+
+  for (let idx = 0; idx < alternatives.length; idx++) {
+    const alt = alternatives[idx];
+    if (!alt || typeof alt !== 'string') continue;
+    const match = detectWakeWord(alt);
+    if (match.detected) {
+      return {
+        detected: true,
+        matchedPhrase: match.matchedPhrase,
+        remainderQuery: match.remainderQuery,
+        matchedAlternative: alt,
+        rawResult: alt,
+        normalizedResult: normalizeTranscript(alt),
+      };
+    }
+  }
+
+  const primary = alternatives[0] || '';
+  return {
+    detected: false,
+    remainderQuery: '',
+    rawResult: primary,
+    normalizedResult: normalizeTranscript(primary),
+  };
 }
 
 /**
