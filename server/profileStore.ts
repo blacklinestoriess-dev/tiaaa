@@ -47,7 +47,42 @@ export const DEFAULT_OWNER_PROFILE: OwnerProfile = {
 };
 
 // Determine file storage path
+export const isServerless = Boolean(
+  process.env.VERCEL ||
+  process.env.NOW_REGION ||
+  process.env.AWS_LAMBDA_FUNCTION_NAME ||
+  process.env.LAMBDA_TASK_ROOT
+);
+
+function findExistingProfilePath(): string | null {
+  const candidatePaths = [
+    path.resolve(process.cwd(), 'server', 'data', 'owner_profile.json'),
+    path.resolve(__dirname, 'data', 'owner_profile.json'),
+    path.resolve(__dirname, 'server', 'data', 'owner_profile.json'),
+    path.resolve(os.tmpdir(), 'tia_data', 'owner_profile.json'),
+  ];
+  for (const p of candidatePaths) {
+    try {
+      if (fs.existsSync(p)) {
+        return p;
+      }
+    } catch {
+      // Continue
+    }
+  }
+  return null;
+}
+
 function getStoragePath(): string {
+  const existing = findExistingProfilePath();
+  if (existing) {
+    return existing;
+  }
+
+  if (isServerless) {
+    return path.resolve(process.cwd(), 'server', 'data', 'owner_profile.json');
+  }
+
   try {
     const currentDir = process.cwd();
     const dataDir = path.resolve(currentDir, 'server', 'data');

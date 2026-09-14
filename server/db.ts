@@ -104,8 +104,45 @@ export function verifyPassword(password: string, hash: string, salt: string): bo
   }
 }
 
+// Detect if running inside a serverless / read-only environment (such as Vercel)
+export const isServerless = Boolean(
+  process.env.VERCEL ||
+  process.env.NOW_REGION ||
+  process.env.AWS_LAMBDA_FUNCTION_NAME ||
+  process.env.LAMBDA_TASK_ROOT
+);
+
+function findExistingDbFile(): string | null {
+  const candidatePaths = [
+    path.resolve(process.cwd(), 'server', 'data', 'tia_database.json'),
+    path.resolve(__dirname, 'data', 'tia_database.json'),
+    path.resolve(__dirname, 'server', 'data', 'tia_database.json'),
+    path.resolve(os.tmpdir(), 'tia_data', 'tia_database.json'),
+  ];
+  for (const p of candidatePaths) {
+    try {
+      if (fs.existsSync(p)) {
+        return p;
+      }
+    } catch {
+      // Continue
+    }
+  }
+  return null;
+}
+
 // Database file path
 function getDbFilePath(): string {
+  const existing = findExistingDbFile();
+  if (existing) {
+    return existing;
+  }
+
+  // On Vercel / serverless, do NOT attempt mkdirSync in project root (/var/task)
+  if (isServerless) {
+    return path.resolve(process.cwd(), 'server', 'data', 'tia_database.json');
+  }
+
   try {
     const currentDir = process.cwd();
     const dataDir = path.resolve(currentDir, 'server', 'data');
@@ -329,9 +366,16 @@ export function loadDatabase(): DatabaseSchema {
   return seed;
 }
 
-// Persist database to disk
+// Persist database to disk (environment-aware: memory-only on Vercel serverless, filesystem in AI Studio/local)
 export function saveDatabase(db: DatabaseSchema): boolean {
   cachedDb = db;
+
+  if (isServerless) {
+    // In Vercel serverless environment, filesystem is read-only (/var/task).
+    // State is preserved in-memory for the function invocation without attempting disk writes.
+    return true;
+  }
+
   const filePath = getDbFilePath();
   try {
     const tempPath = `${filePath}.tmp.${Date.now()}`;
@@ -339,7 +383,7 @@ export function saveDatabase(db: DatabaseSchema): boolean {
     fs.renameSync(tempPath, filePath);
     return true;
   } catch (err) {
-    console.error('Failed to save database to disk:', err);
+    console.warn('Failed to persist database to disk (gracefully kept in memory):', err);
     return false;
   }
 }

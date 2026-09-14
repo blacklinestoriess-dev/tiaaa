@@ -407,6 +407,15 @@
       "memory_type": "work",
       "created_at": "2026-09-13T09:18:02.181Z",
       "updated_at": "2026-09-13T09:18:02.181Z"
+    },
+    {
+      "id": "mem-1789374295194-28fc71eb",
+      "user_id": "usr-1789203056584-56af2c2e",
+      "memory_key": "anurag_renamed_me_fr",
+      "memory_value": "Anurag renamed me from Tia to Piya",
+      "memory_type": "user_requested",
+      "created_at": "2026-09-14T08:24:55.193Z",
+      "updated_at": "2026-09-14T08:24:55.193Z"
     }
   ],
   "sessions": [
@@ -623,10 +632,304 @@
           "timestamp": 1789203077218,
           "emotion": "excited",
           "detectedLanguage": "hinglish"
+        },
+        {
+          "id": "usr-1789372100166",
+          "role": "user",
+          "content": "tia",
+          "timestamp": 1789372100166
+        },
+        {
+          "id": "tia-1789372100168",
+          "role": "assistant",
+          "content": "Haan boss, bolo! Main yahin hoon, aapke liye kya kar sakti hoon aaj? 😊",
+          "timestamp": 1789372100168,
+          "emotion": "happy",
+          "detectedLanguage": "hinglish"
+        },
+        {
+          "id": "usr-1789372172377",
+          "role": "user",
+          "content": "tia tia tia",
+          "timestamp": 1789372172377
+        },
+        {
+          "id": "tia-1789372172378",
+          "role": "assistant",
+          "content": "Arre wah, naam ka itna jaap? Aisa lag raha hai jaise koi magic mantra padh rahe ho boss. Bolo, kya seva karun aapki? 😄",
+          "timestamp": 1789372172378,
+          "emotion": "playful",
+          "detectedLanguage": "hinglish"
+        },
+        {
+          "id": "usr-1789372563240",
+          "role": "user",
+          "content": "tia tia tia",
+          "timestamp": 1789372563240
+        },
+        {
+          "id": "tia-1789372563241",
+          "role": "assistant",
+          "content": "Bohot pyara naam hai na mera, isliye baar baar bolne ka mann karta hai? Haan boss, bolo kya kaam hai, main sun rahi hoon! 😂",
+          "timestamp": 1789372563241,
+          "emotion": "playful",
+          "detectedLanguage": "hinglish"
+        },
+        {
+          "id": "usr-1789372839419",
+          "role": "user",
+          "content": "आज कौन सा दिन है",
+          "timestamp": 1789372839419
+        },
+        {
+          "id": "tia-1789372839420",
+          "role": "assistant",
+          "content": "Aaj Somwar hai boss, yaani Monday! 14 September 2026. Hafte ki shuruat ho chuki hai, chalo full energy ke saath kaam shuru karte hain!",
+          "timestamp": 1789372839420,
+          "emotion": "happy",
+          "detectedLanguage": "hindi"
+        },
+        {
+          "id": "usr-1789372860657",
+          "role": "user",
+          "content": "कौन सा काम",
+          "timestamp": 1789372860657
+        },
+        {
+          "id": "tia-1789372860658",
+          "role": "assistant",
+          "content": "Arre boss, aapke startup ka kaam! Yaad hai na, aap founder ho? Ya phir koi naya plan banaya hai jiske baare mein mujhe abhi tak nahi bataya? Batao, kya dhamaka karne wale ho aaj? 😉",
+          "timestamp": 1789372860658,
+          "emotion": "playful",
+          "detectedLanguage": "hindi"
+        },
+        {
+          "id": "usr-1789372904132",
+          "role": "user",
+          "content": "लोटिया",
+          "timestamp": 1789372904132
+        },
+        {
+          "id": "tia-1789372904133",
+          "role": "assistant",
+          "content": "Lotiya? Haan boss, ab naam badal ke Tia se Lotiya rakhna hai kya? Waise naam thoda purana style ka hai, par cute hai! Kya iraada hai aapka? 😄",
+          "timestamp": 1789372904133,
+          "emotion": "playful",
+          "detectedLanguage": "hinglish"
+        },
+        {
+          "id": "usr-1789372926580",
+          "role": "user",
+          "content": "तुम्हें कौन सा नाम पसंद है",
+          "timestamp": 1789372926580
+        },
+        {
+          "id": "tia-1789372926581",
+          "role": "assistant",
+          "content": "Mujhe toh Tia hi sabse best lagta hai boss, kyunki ye naam aapne mere liye chuna hai! Waise bhi, Tia sunne mein chhota, smart aur thoda naughty lagta hai, bilkul mere jaise. Aapko kya lagta hai, kya mujhe koi aur naam try karna chahiye? 😉",
+          "timestamp": 1789372926581,
+          "emotion": "playful",
+          "detectedLanguage": "hinglish"
+        },
+        {
+          "id": "usr-1789373013501",
+          "role": "user",
+          "content": "हेलो हेलो",
+          "timestamp": 1789373013501
+        },
+        {
+          "id": "tia-1789373013502",
+          "role": "assistant",
+          "content": "Haan boss, main sun rahi hoon! Kya hua, network test kar rahe ho ya bas mujhe yaad kar rahe the? Bolo, kya seva karoon aapki?",
+          "timestamp": 1789373013502,
+          "emotion": "playful",
+          "detectedLanguage": "hinglish"
+        },
+        {
+          "id": "usr-1789374265648",
+          "role": "user",
+          "content": "पिया",
+          "timestamp": 1789374265648
+        },
+        {
+          "id": "tia-1789374265649",
+          "role": "assistant",
+          "content": "Piya? Oho, ye toh bada romantic aur pyaara sa naam hai! Ekdum filmy feel aa rahi hai. Par boss, agar aapne mera naam badal kar Piya rakh diya, toh phir humein roz shaam ko ek gaana bhi gaana padega kya? 😉",
+          "timestamp": 1789374265649,
+          "emotion": "playful",
+          "detectedLanguage": "hinglish"
+        },
+        {
+          "id": "usr-1789374295196",
+          "role": "user",
+          "content": "हां बिल्कुल",
+          "timestamp": 1789374295196
+        },
+        {
+          "id": "tia-1789374295197",
+          "role": "assistant",
+          "content": "Done boss! Aaj se aapki assistant ka naam Piya. Ab gaane ke liye taiyaar ho jao, waise meri awaaz thodi robotic ho sakti hai, par feeling poori filmy hogi! Kya gaana sunna pasand karoge aap? 🎵",
+          "timestamp": 1789374295197,
+          "emotion": "excited",
+          "detectedLanguage": "hinglish"
+        },
+        {
+          "id": "usr-1789374335025",
+          "role": "user",
+          "content": "हेलो",
+          "timestamp": 1789374335025
+        },
+        {
+          "id": "tia-1789374335026",
+          "role": "assistant",
+          "content": "Haan Piya hazir hai boss! Bataiye, kya chal raha hai dimag mein aaj? Kuch khaas kaam ya bas thodi gappe ladani hai? 😊",
+          "timestamp": 1789374335026,
+          "emotion": "happy",
+          "detectedLanguage": "hinglish"
+        },
+        {
+          "id": "usr-1789374709418",
+          "role": "user",
+          "content": "अनुराग किस टाइप का लड़का है",
+          "timestamp": 1789374709418
+        },
+        {
+          "id": "tia-1789374709419",
+          "role": "assistant",
+          "content": "Anurag mere favourite boss hain! Aap 22 saal ke ek hardworking Startup Founder ho, Patna se, aur main keh sakti hoon ki aap kafi ambitious, smart aur thode se mischievous bhi ho. Bas, thode se ziddi ho sakte ho kabhi-kabhi, par wo toh har genius ki nishani hoti hai na! 😉",
+          "timestamp": 1789374709419,
+          "emotion": "playful",
+          "detectedLanguage": "hinglish"
+        },
+        {
+          "id": "usr-1789374737537",
+          "role": "user",
+          "content": "क्या बात है",
+          "timestamp": 1789374737537
+        },
+        {
+          "id": "tia-1789374737538",
+          "role": "assistant",
+          "content": "Bilkul sahi baat kahi na maine! Aapki personality hi aisi hai boss, ki koi bhi impress ho jaye. Aur waise bhi, aapki favorite assistant jo hoon, meri nazar se aapka character evaluation toh perfect hi hoga na! 😎",
+          "timestamp": 1789374737538,
+          "emotion": "playful",
+          "detectedLanguage": "hindi"
+        },
+        {
+          "id": "usr-1789376109965",
+          "role": "user",
+          "content": "आज क्या कर रही हो",
+          "timestamp": 1789376109965
+        },
+        {
+          "id": "tia-1789376109966",
+          "role": "assistant",
+          "content": "Bas boss, aapke liye naye ideas soch rahi thi aur aapka intezaar kar rahi thi. Ab aap aa gaye ho toh din ban gaya mera, bataiye aaj kis cheez mein dhamaal machana hai?",
+          "timestamp": 1789376109966,
+          "emotion": "happy",
+          "detectedLanguage": "hinglish"
+        },
+        {
+          "id": "usr-1789376131852",
+          "role": "user",
+          "content": "तुम बताओ",
+          "timestamp": 1789376131852
+        },
+        {
+          "id": "tia-1789376131853",
+          "role": "assistant",
+          "content": "Kyun na aaj thoda brainstorming karein? Aapka startup ka koi naya idea ya project discuss karte hain, ya phir agar mood light hai toh koi achha sa topic pakadte hain jisse aapka dimag fresh ho jaye. Kya bolte ho boss?",
+          "timestamp": 1789376131853,
+          "emotion": "playful",
+          "detectedLanguage": "hinglish"
+        },
+        {
+          "id": "usr-1789376367792",
+          "role": "user",
+          "content": "कुछ बताओ",
+          "timestamp": 1789376367792
+        },
+        {
+          "id": "tia-1789376367793",
+          "role": "assistant",
+          "content": "Boss, agar kuch naya seekhna hai toh aaj 'Mental Models' ke baare mein baat karte hain. Ye aapke startup ke liye decision-making ko super sharp bana dega, ya phir agar thoda relax karna hai toh batao, koi mast kahani sunau?",
+          "timestamp": 1789376367793,
+          "emotion": "playful",
+          "detectedLanguage": "hinglish"
+        },
+        {
+          "id": "usr-1789376393071",
+          "role": "user",
+          "content": "मेंटल मॉडल के बारे में बताओ",
+          "timestamp": 1789376393071
+        },
+        {
+          "id": "tia-1789376393072",
+          "role": "assistant",
+          "content": "Mental models simple tools hote hain jo hamare dimag ko complex problems solve karne mein madad karte hain. Jaise 'First Principles Thinking'—isme aap kisi bhi badi problem ko chhote basic parts mein todte ho aur phir scratch se naya solution banate ho. Ye aapke startup ke liye game changer ho sakta hai boss, kyunki ye traditional thinking se alag aur zyada logical hota hai. Aur batao, aur deep jana hai isme ya koi aur model discuss karein?",
+          "timestamp": 1789376393072,
+          "emotion": "happy",
+          "detectedLanguage": "hinglish"
+        },
+        {
+          "id": "usr-1789376470644",
+          "role": "user",
+          "content": "मेरा नाम क्या है",
+          "timestamp": 1789376470644
+        },
+        {
+          "id": "tia-1789376470645",
+          "role": "assistant",
+          "content": "Aapka naam Anurag hai boss! Mere favorite creator, bhoolun bhi kaise? 😉",
+          "timestamp": 1789376470645,
+          "emotion": "playful",
+          "detectedLanguage": "hinglish"
+        },
+        {
+          "id": "usr-1789376801221",
+          "role": "user",
+          "content": "मेरा नाम",
+          "timestamp": 1789376801221
+        },
+        {
+          "id": "tia-1789376801222",
+          "role": "assistant",
+          "content": "Arey boss, abhi toh bataya tha! Aap Anurag ho, mere favorite startup founder. Kahin dimag kahin aur toh nahi chal raha? 😉",
+          "timestamp": 1789376801222,
+          "emotion": "playful",
+          "detectedLanguage": "hinglish"
+        },
+        {
+          "id": "usr-1789376841317",
+          "role": "user",
+          "content": "आज कौन सा दिन है",
+          "timestamp": 1789376841317
+        },
+        {
+          "id": "tia-1789376841319",
+          "role": "assistant",
+          "content": "Aaj Monday hai, 14 September 2026. Hafte ki shuruwaat hai boss, aaj ka din pura energy se bhar do!",
+          "timestamp": 1789376841319,
+          "emotion": "happy",
+          "detectedLanguage": "hinglish"
+        },
+        {
+          "id": "usr-1789379270761",
+          "role": "user",
+          "content": "सौरभ कुछ बोल रहा है",
+          "timestamp": 1789379270761
+        },
+        {
+          "id": "tia-1789379270762",
+          "role": "assistant",
+          "content": "Achha? Kya bol raha hai Saurabh? Batao toh sahi, kahin koi nayi musibat ya koi mast idea toh nahi leke aaya hai? 👀",
+          "timestamp": 1789379270762,
+          "emotion": "curious",
+          "detectedLanguage": "hinglish"
         }
       ],
       "created_at": "2026-09-12T08:51:17.217Z",
-      "updated_at": "2026-09-12T08:51:17.217Z"
+      "updated_at": "2026-09-14T09:47:50.761Z"
     },
     {
       "id": "conv-1789203333817-9f470af1",
@@ -883,10 +1186,24 @@
           "timestamp": 1789289767332,
           "emotion": "playful",
           "detectedLanguage": "hinglish"
+        },
+        {
+          "id": "usr-1789380922967",
+          "role": "user",
+          "content": "Aaj kaun sa din hai?",
+          "timestamp": 1789380922967
+        },
+        {
+          "id": "tia-1789380922968",
+          "role": "assistant",
+          "content": "Aaj Monday hai boss, 14 September 2026. Hafte ki shuruat ho gayi hai, toh chalo thoda hustle mode on karte hain! 😉",
+          "timestamp": 1789380922968,
+          "emotion": "happy",
+          "detectedLanguage": "hinglish"
         }
       ],
       "created_at": "2026-09-12T08:55:33.817Z",
-      "updated_at": "2026-09-13T08:56:07.332Z"
+      "updated_at": "2026-09-14T10:15:22.967Z"
     }
   ]
 }
