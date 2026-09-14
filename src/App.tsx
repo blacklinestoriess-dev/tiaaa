@@ -15,7 +15,6 @@ import { VoiceControls } from './components/VoiceControls';
 import { ConversationPreview } from './components/ConversationPreview';
 import { SettingsModal } from './components/SettingsModal';
 import { ErrorMessage } from './components/ErrorMessage';
-import { AuthScreen } from './components/AuthScreen';
 import {
   WakeWordDebugIndicator,
   type WakeWordDebugInfo,
@@ -56,6 +55,29 @@ const DEFAULT_SETTINGS: TiaSettings = {
   wakeChimeEnabled: true,
 };
 
+const DEFAULT_OWNER_PROFILE: OwnerProfile = {
+  name: 'Anurag',
+  relationship: 'owner',
+  location: 'Patna, India',
+  occupation_status: 'working on a startup',
+  personality_traits: ['intelligent', 'curious', 'ambitious'],
+  additional_memories: [
+    {
+      id: 'mem-init-1',
+      fact: 'Anurag is the creator and owner of Tia.',
+      category: 'identity',
+      createdAt: new Date().toISOString(),
+    },
+    {
+      id: 'mem-init-2',
+      fact: 'Anurag lives in Patna, India and is building a startup.',
+      category: 'work',
+      createdAt: new Date().toISOString(),
+    },
+  ],
+  last_updated: new Date().toISOString(),
+};
+
 export default function App() {
   // Application State
   const [settings, setSettings] = useState<TiaSettings>(() => {
@@ -84,7 +106,7 @@ export default function App() {
   >('prompt');
   const [followUpRemaining, setFollowUpRemaining] = useState<number>(4);
 
-  // User Authentication & Private Session
+  // User Profile & Identity State
   const [authSession, setAuthSession] = useState<AuthSession | null>(() => {
     try {
       const cached = localStorage.getItem('tia_auth_session');
@@ -104,34 +126,34 @@ export default function App() {
   });
 
   // Persistent Owner Profile State (for Tia personality compatibility & memory)
-  const [ownerProfile, setOwnerProfile] = useState<OwnerProfile | null>(() => {
+  const [ownerProfile, setOwnerProfile] = useState<OwnerProfile>(() => {
     try {
       const cached = localStorage.getItem('tia_owner_profile');
-      return cached ? JSON.parse(cached) : null;
+      if (cached) return JSON.parse(cached);
     } catch {
-      return null;
+      // ignore
     }
+    return DEFAULT_OWNER_PROFILE;
   });
 
-  // Check auth session validity on mount & load user profile
+  // Load persistent owner profile and memories on mount without requiring login
   useEffect(() => {
     const token = authSession?.token || localStorage.getItem('tia_auth_token');
-    if (!token) return;
-
-    fetch('/api/auth/me', {
-      headers: { Authorization: `Bearer ${token}` },
+    fetch('/api/profile', {
+      headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
     })
-      .then((res) => parseApiResponse(res, '/api/auth/me'))
+      .then((res) => parseApiResponse(res, '/api/profile'))
       .then((data) => {
-        if (data?.user && data?.profile) {
+        if (data?.profile) {
           setUserProfile(data.profile);
-          localStorage.setItem('tia_user_profile', JSON.stringify(data.profile));
-
           const mappedOwner: OwnerProfile = {
-            name: data.profile.full_name || 'Owner',
+            name: data.profile.full_name || 'Anurag',
             relationship: 'owner',
-            location: data.profile.location || data.profile.address || '',
-            occupation_status: data.profile.current_work || data.profile.occupation_status || 'Explorer',
+            location: data.profile.location || data.profile.address || 'Patna, India',
+            occupation_status:
+              data.profile.current_work ||
+              data.profile.occupation_status ||
+              'working on a startup',
             personality_traits: ['intelligent', 'curious', 'ambitious'],
             additional_memories: (data.memories || []).map((m: any) => ({
               id: m.id,
@@ -146,22 +168,15 @@ export default function App() {
         }
       })
       .catch((err) => {
-        console.warn('Session expired or invalid:', err);
-        localStorage.removeItem('tia_auth_session');
-        localStorage.removeItem('tia_auth_token');
-        localStorage.removeItem('tia_user_profile');
-        setAuthSession(null);
-        setUserProfile(null);
+        console.warn('Could not load profile from server:', err);
       });
   }, [authSession?.token]);
 
-  // Load authenticated user conversation history
+  // Load conversation history on mount without requiring login
   useEffect(() => {
-    const token = authSession?.token;
-    if (!token) return;
-
+    const token = authSession?.token || localStorage.getItem('tia_auth_token');
     fetch('/api/conversations', {
-      headers: { Authorization: `Bearer ${token}` },
+      headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
     })
       .then((res) => parseApiResponse(res, '/api/conversations'))
       .then((data) => {
@@ -286,16 +301,14 @@ export default function App() {
   useEffect(() => {
     if (settings.theme === 'light') {
       document.documentElement.classList.remove('dark');
-      document.body.className = authSession
-        ? 'bg-slate-100 text-slate-900 antialiased overflow-hidden select-none'
-        : 'bg-slate-100 text-slate-900 antialiased min-h-screen overflow-y-auto';
+      document.body.className =
+        'bg-slate-100 text-slate-900 antialiased overflow-hidden select-none';
     } else {
       document.documentElement.classList.add('dark');
-      document.body.className = authSession
-        ? 'bg-[#0b0f19] text-slate-100 antialiased overflow-hidden select-none'
-        : 'bg-[#0b0f19] text-slate-100 antialiased min-h-screen overflow-y-auto';
+      document.body.className =
+        'bg-[#0b0f19] text-slate-100 antialiased overflow-hidden select-none';
     }
-  }, [settings.theme, !!authSession]);
+  }, [settings.theme]);
 
   // Load voices on mount and on voiceschanged
   useEffect(() => {
@@ -1593,98 +1606,10 @@ export default function App() {
     }
   }, [authSession?.token]);
 
-  // Auth: Handle Successful Login / Signup
-  const handleLoginSuccess = useCallback(
-    (session: AuthSession) => {
-      setAuthSession(session);
-      setUserProfile(session.profile);
-      localStorage.setItem('tia_auth_session', JSON.stringify(session));
-      localStorage.setItem('tia_auth_token', session.token);
-      localStorage.setItem('tia_user_profile', JSON.stringify(session.profile));
-
-      const mappedOwner: OwnerProfile = {
-        name: session.profile.full_name || 'Owner',
-        relationship: 'owner',
-        location: session.profile.location || session.profile.address || '',
-        occupation_status: session.profile.current_work || session.profile.occupation_status || 'Explorer',
-        personality_traits: ['intelligent', 'curious', 'ambitious'],
-        additional_memories: [],
-        last_updated: new Date().toISOString(),
-      };
-      setOwnerProfile(mappedOwner);
-      localStorage.setItem('tia_owner_profile', JSON.stringify(mappedOwner));
-
-      // Friendly personalized welcome by Tia
-      const firstName = session.profile.full_name.split(' ')[0] || session.profile.full_name;
-      const isNew = !!session.isNewUser;
-      const greetingText = isNew
-        ? `Hey! 👋 Main Tia hoon. Lagta hai hum pehli baar officially mil rahe hain 😄 Chalo, pehle tumhare baare mein thoda jaan leti hoon. Welcome, ${firstName}!`
-        : `Welcome back, ${firstName}! 😎 Tia is ready. Aaj kya plan hai?`;
-
-      const greetMsg: Message = {
-        id: `tia-welcome-${Date.now()}`,
-        role: 'assistant',
-        content: greetingText,
-        timestamp: Date.now(),
-        emotion: 'playful',
-        voiceName: 'Tia (Default)',
-        detectedLanguage: 'hinglish',
-      };
-      setMessages([greetMsg]);
-
-      if (settings.voiceEnabled) {
-        speakResponse(greetingText, 'playful', 'hinglish', 'chat', 'female');
-      }
-    },
-    [settings.voiceEnabled, speakResponse]
-  );
-
-  // Auth: Handle Logout
-  const handleLogout = useCallback(async () => {
-    stopSpeech();
-    if (recognizerRef.current) {
-      recognizerRef.current.abort();
-      recognizerRef.current = null;
-    }
-    const token = authSession?.token || localStorage.getItem('tia_auth_token');
-    if (token) {
-      try {
-        await fetch('/api/auth/logout', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
-          },
-        });
-      } catch {
-        // ignore
-      }
-    }
-    localStorage.removeItem('tia_auth_session');
-    localStorage.removeItem('tia_auth_token');
-    localStorage.removeItem('tia_user_profile');
-    localStorage.removeItem('tia_owner_profile');
-    setAuthSession(null);
-    setUserProfile(null);
-    setOwnerProfile(null);
-    setMessages([]);
-    setAssistantState('idle');
-  }, [authSession?.token, stopSpeech]);
-
   const lastAssistantMsg =
     [...messages].reverse().find((m) => m.role === 'assistant') || null;
 
   const isDark = settings.theme === 'dark';
-
-  // If unauthenticated, render the full AuthScreen
-  if (!authSession) {
-    return (
-      <AuthScreen
-        onAuthSuccess={handleLoginSuccess}
-        isDark={isDark}
-      />
-    );
-  }
 
   return (
     <main
@@ -1706,7 +1631,6 @@ export default function App() {
         onOpenSettings={() => setIsSettingsOpen(true)}
         isDark={isDark}
         ownerProfile={ownerProfile}
-        onLogout={handleLogout}
       />
 
       {/* Error / Permission Toast Notification */}
@@ -1780,9 +1704,6 @@ export default function App() {
         isDark={isDark}
         ownerProfile={ownerProfile}
         userProfile={userProfile}
-        authEmail={authSession.user.email}
-        authPhone={authSession.user.phone_number || userProfile?.phone_number}
-        onLogout={handleLogout}
         onUpdateOwnerProfile={handleUpdateOwnerProfile}
         onAddMemory={handleAddMemory}
         onDeleteMemory={handleDeleteMemory}

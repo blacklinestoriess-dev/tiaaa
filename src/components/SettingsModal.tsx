@@ -21,7 +21,6 @@ import {
   RotateCcw,
   Edit2,
   MessageSquare,
-  LogOut,
   Calendar,
   Mail,
   Phone,
@@ -39,9 +38,6 @@ interface SettingsModalProps {
   isDark: boolean;
   ownerProfile?: OwnerProfile | null;
   userProfile?: UserProfile | null;
-  authEmail?: string;
-  authPhone?: string;
-  onLogout?: () => void;
   onUpdateOwnerProfile?: (updater: Partial<OwnerProfile>) => void;
   onAddMemory?: (fact: string) => void;
   onDeleteMemory?: (id: string) => void;
@@ -60,9 +56,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   isDark,
   ownerProfile,
   userProfile,
-  authEmail,
-  authPhone,
-  onLogout,
   onUpdateOwnerProfile,
   onAddMemory,
   onDeleteMemory,
@@ -826,23 +819,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         </div>
 
         {/* Modal Footer */}
-        <div className="px-5 py-3 border-t border-white/10 flex items-center justify-between">
-          {onLogout ? (
-            <button
-              type="button"
-              id="btn-modal-logout"
-              onClick={() => {
-                onClose();
-                onLogout();
-              }}
-              className="px-3.5 py-1.5 rounded-full border border-rose-500/30 bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
-            >
-              <LogOut className="w-3.5 h-3.5" />
-              <span>Log Out</span>
-            </button>
-          ) : (
-            <div />
-          )}
+        <div className="px-5 py-3 border-t border-white/10 flex items-center justify-end">
           <button
             type="button"
             id="btn-done-settings"

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Volume2, VolumeX, Moon, Sun, Settings, Sparkles, UserCheck, LogOut, Languages } from 'lucide-react';
+import { Volume2, VolumeX, Moon, Sun, Settings, Sparkles, UserCheck, Languages } from 'lucide-react';
 import type { TiaSettings, OwnerProfile } from '../types';
 
 interface HeaderProps {
@@ -8,7 +8,6 @@ interface HeaderProps {
   onOpenSettings: () => void;
   isDark: boolean;
   ownerProfile?: OwnerProfile | null;
-  onLogout?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -17,7 +16,6 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenSettings,
   isDark,
   ownerProfile,
-  onLogout,
 }) => {
   return (
     <header
@@ -161,22 +159,6 @@ export const Header: React.FC<HeaderProps> = ({
         >
           <Settings className="w-5 h-5" />
         </button>
-
-        {/* Logout button */}
-        {onLogout && (
-          <button
-            type="button"
-            id="btn-header-logout"
-            onClick={onLogout}
-            className={`p-2 rounded-full transition-colors cursor-pointer ${
-              isDark ? 'text-slate-400 hover:text-rose-400 hover:bg-rose-500/10' : 'text-slate-600 hover:text-rose-600 hover:bg-rose-50'
-            }`}
-            title="Log Out of Tia"
-            aria-label="Log Out"
-          >
-            <LogOut className="w-4 h-4" />
-          </button>
-        )}
       </div>
     </header>
   );

@@ -54,24 +54,16 @@ function sendJson(res: ServerResponse, statusCode: number, data: any) {
   res.end(JSON.stringify(data));
 }
 
-// Authenticate request or return null with 401 response
-function authenticateRequest(req: IncomingMessage, res: ServerResponse): { userId: string } | null {
+// Authenticate request or return default primary user when unauthenticated
+function authenticateRequest(req: IncomingMessage, _res: ServerResponse): { userId: string } {
   const token = extractAuthToken(req);
   if (!token) {
-    sendJson(res, 401, {
-      success: false,
-      error: 'Unauthorized: No active session. Please log in to access your personal profile.',
-    });
-    return null;
+    return { userId: 'usr-anurag-001' };
   }
 
   const auth = getUserByToken(token);
   if (!auth) {
-    sendJson(res, 401, {
-      success: false,
-      error: 'Unauthorized: Session expired or invalid. Please log in again.',
-    });
-    return null;
+    return { userId: 'usr-anurag-001' };
   }
 
   return { userId: auth.user.id };

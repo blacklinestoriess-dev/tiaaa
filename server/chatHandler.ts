@@ -258,33 +258,34 @@ export async function handleChatRequest(req: IncomingMessage, res: ServerRespons
     return;
   }
 
-  // Authenticate user via bearer token
+  // Authenticate user via bearer token if available, or default to primary profile
   const token = extractAuthToken(req);
-  if (!token) {
-    res.statusCode = 401;
-    res.setHeader('Content-Type', 'application/json');
-    res.end(
-      JSON.stringify({
-        error: 'Unauthorized: Please log in to chat with your personal Tia assistant.',
-      })
-    );
-    return;
-  }
+  let userId = 'usr-anurag-001';
+  let profile: any = {
+    id: 'prf-anurag-001',
+    user_id: 'usr-anurag-001',
+    full_name: 'Anurag',
+    username: 'anurag',
+    date_of_birth: '2000-01-01',
+    location: 'Patna, India',
+    current_work: 'working on a startup',
+    age: 26,
+    address: 'Patna, India',
+    occupation_status: 'working on a startup',
+  };
 
-  const auth = getUserByToken(token);
-  if (!auth) {
-    res.statusCode = 401;
-    res.setHeader('Content-Type', 'application/json');
-    res.end(
-      JSON.stringify({
-        error: 'Unauthorized: Session expired or invalid. Please log in again.',
-      })
-    );
-    return;
+  if (token) {
+    const auth = getUserByToken(token);
+    if (auth) {
+      userId = auth.user.id;
+      profile = auth.profile;
+    }
+  } else {
+    const dbProfile = getUserProfile('usr-anurag-001');
+    if (dbProfile) {
+      profile = dbProfile;
+    }
   }
-
-  const { user, profile } = auth;
-  const userId = user.id;
 
   try {
     const body = await readRequestBody(req);
