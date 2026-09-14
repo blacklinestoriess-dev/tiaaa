@@ -1,5 +1,6 @@
 import express from 'express';
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import { handleChatRequest } from './server/chatHandler.ts';
@@ -120,7 +121,22 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
 });
 
 // Serve production static assets from dist
-const distPath = path.resolve(currentDirname, 'dist');
+// Locate dist directory whether running from root as server.ts or from dist/ as server.cjs
+const getDistPath = () => {
+  const cwdDist = path.resolve(process.cwd(), 'dist');
+  if (fs.existsSync(path.join(cwdDist, 'index.html'))) {
+    return cwdDist;
+  }
+  const dirnameDist = path.resolve(currentDirname, 'dist');
+  if (fs.existsSync(path.join(dirnameDist, 'index.html'))) {
+    return dirnameDist;
+  }
+  if (fs.existsSync(path.join(currentDirname, 'index.html'))) {
+    return currentDirname;
+  }
+  return cwdDist;
+};
+const distPath = getDistPath();
 app.use(express.static(distPath));
 
 // SPA fallback to index.html with strict protection against intercepting /api (Requirements 18 & 19)
@@ -140,15 +156,8 @@ app.get('*', (req, res) => {
   res.sendFile(path.resolve(distPath, 'index.html'));
 });
 
-// Only bind port when run directly as the main script (Vercel invokes the exported app as a serverless handler)
-const isDirectRun = Boolean(
-  process.argv[1] &&
-    (process.argv[1].endsWith('server.ts') ||
-      process.argv[1].endsWith('server.js') ||
-      process.argv[1].endsWith('server.cjs'))
-);
-
-if (process.env.VERCEL !== '1' && (isDirectRun || process.env.RUN_SERVER === '1')) {
+// Bind port when running as a standalone server (Vercel invokes the exported app as a serverless handler)
+if (process.env.VERCEL !== '1') {
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`Tia AI Voice Assistant server running at http://0.0.0.0:${PORT}`);
   });
