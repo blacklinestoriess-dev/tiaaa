@@ -157,7 +157,14 @@ app.get('*', (req, res) => {
 });
 
 // Bind port when running as a standalone server (Vercel invokes the exported app as a serverless handler)
-if (process.env.VERCEL !== '1') {
+const isServerlessEnv = Boolean(
+  process.env.VERCEL ||
+  process.env.NOW_REGION ||
+  process.env.AWS_LAMBDA_FUNCTION_NAME ||
+  process.env.LAMBDA_TASK_ROOT
+);
+
+if (!isServerlessEnv) {
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`Tia AI Voice Assistant server running at http://0.0.0.0:${PORT}`);
   });
