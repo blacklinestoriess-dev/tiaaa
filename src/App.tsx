@@ -420,6 +420,7 @@ export default function App() {
       activeSessionIdRef.current += 1;
       if (recognizerRef.current) {
         try {
+          recognizerRef.current.resetUtterance?.();
           recognizerRef.current.abort();
         } catch {
           // ignore
@@ -433,6 +434,7 @@ export default function App() {
       clearSpeechSilenceTimer();
 
       isSpeakingRef.current = true;
+      setAssistantState('speaking');
 
       // Contextual voice resolution
       const { voice, voiceLabel } = selectContextualVoice({
@@ -451,6 +453,7 @@ export default function App() {
       speechSessionRef.current = speakEmotionally({
         text: textToSpeak,
         emotion,
+        detectedLanguage,
         voice,
         baseRate: settings.speechRate,
         onStart: () => {
@@ -529,6 +532,7 @@ export default function App() {
       // Cleanly stop any existing recognizer
       if (recognizerRef.current) {
         try {
+          recognizerRef.current.resetUtterance?.();
           recognizerRef.current.abort();
         } catch {
           // ignore
@@ -733,6 +737,7 @@ export default function App() {
       const sessionId = ++activeSessionIdRef.current;
 
       // Reset state and ALWAYS clear transcript buffer when beginning new recognition session
+      recognizerRef.current?.resetUtterance?.();
       if (!isRestart) {
         clearFollowUpTimer();
         clearQuestionWaitTimer();

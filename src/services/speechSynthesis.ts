@@ -257,23 +257,20 @@ export function getAvailableVoices(): SpeechVoiceOption[] {
     const langLower = v.lang.toLowerCase();
     const nameLower = v.name.toLowerCase();
 
-    const isIndianLang =
-      langLower.includes('en-in') ||
+    // Tia specifically speaks Hindi, Indian English, or general English.
+    // Explicitly distinguish Hindi & Indian English from unrelated regional languages.
+    const isHindiLang =
+      langLower.startsWith('hi') ||
       langLower.includes('hi-in') ||
       langLower.includes('hi_in') ||
-      langLower.includes('en_in');
+      nameLower.includes('hindi');
 
-    const isIndianName =
-      nameLower.includes('india') ||
-      nameLower.includes('hindi') ||
-      nameLower.includes('neerja') ||
-      nameLower.includes('swara') ||
-      nameLower.includes('heera') ||
-      nameLower.includes('lekha') ||
-      nameLower.includes('kalpana') ||
-      nameLower.includes('ananya') ||
-      nameLower.includes('prabhat') ||
-      nameLower.includes('ravi');
+    const isIndianEnglish =
+      langLower.includes('en-in') ||
+      langLower.includes('en_in') ||
+      (langLower.startsWith('en') && (nameLower.includes('india') || nameLower.includes('indian')));
+
+    const isIndian = isHindiLang || isIndianEnglish;
 
     const isFemale =
       nameLower.includes('female') ||
@@ -307,23 +304,23 @@ export function getAvailableVoices(): SpeechVoiceOption[] {
       name: v.name,
       lang: v.lang,
       voiceURI: v.voiceURI,
-      isIndian: isIndianLang || isIndianName,
+      isIndian,
       isFemale,
       isMale,
       isNatural,
     });
   }
 
-  // Sort: Indian female voices first, then Indian male/other, then natural voices
+  // Sort: Indian female voices first, then Indian male/other, then general English natural voices
   return options.sort((a, b) => {
     let scoreA = 0;
     let scoreB = 0;
 
-    if (a.isIndian) scoreA += 10;
-    if (b.isIndian) scoreB += 10;
+    if (a.isIndian) scoreA += 15;
+    if (b.isIndian) scoreB += 15;
 
-    if (a.isFemale) scoreA += 4;
-    if (b.isFemale) scoreB += 4;
+    if (a.isFemale) scoreA += 5;
+    if (b.isFemale) scoreB += 5;
 
     if (a.isNatural) scoreA += 3;
     if (b.isNatural) scoreB += 3;
@@ -332,12 +329,88 @@ export function getAvailableVoices(): SpeechVoiceOption[] {
   });
 }
 
+// Regional language codes that must NEVER be selected as Tia's default or fallback voice
+const DISALLOWED_REGIONAL_PREFIXES = [
+  'as', // Assamese
+  'bn', // Bengali
+  'gu', // Gujarati
+  'kn', // Kannada
+  'ml', // Malayalam
+  'mr', // Marathi
+  'or', // Odia
+  'pa', // Punjabi
+  'ta', // Tamil
+  'te', // Telugu
+  'ur', // Urdu
+  'id', // Indonesian
+];
+
+const DISALLOWED_REGIONAL_NAMES = [
+  'assamese',
+  'bengali',
+  'gujarati',
+  'kannada',
+  'malayalam',
+  'marathi',
+  'odia',
+  'punjabi',
+  'tamil',
+  'telugu',
+  'urdu',
+];
+
+function isDisallowedRegionalVoice(voice: SpeechSynthesisVoice): boolean {
+  const langLower = voice.lang.toLowerCase();
+  const nameLower = voice.name.toLowerCase();
+
+  for (const prefix of DISALLOWED_REGIONAL_PREFIXES) {
+    if (langLower === prefix || langLower.startsWith(`${prefix}-`) || langLower.startsWith(`${prefix}_`)) {
+      return true;
+    }
+  }
+
+  for (const name of DISALLOWED_REGIONAL_NAMES) {
+    if (nameLower.includes(name)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function isHindiVoice(voice: SpeechSynthesisVoice): boolean {
+  const langLower = voice.lang.toLowerCase();
+  const nameLower = voice.name.toLowerCase();
+  return (
+    langLower.startsWith('hi') ||
+    langLower.includes('hi-in') ||
+    langLower.includes('hi_in') ||
+    nameLower.includes('hindi')
+  );
+}
+
+function isIndianEnglishVoice(voice: SpeechSynthesisVoice): boolean {
+  const langLower = voice.lang.toLowerCase();
+  const nameLower = voice.name.toLowerCase();
+  return (
+    langLower.includes('en-in') ||
+    langLower.includes('en_in') ||
+    (langLower.startsWith('en') && (nameLower.includes('india') || nameLower.includes('indian')))
+  );
+}
+
+function isGeneralEnglishVoice(voice: SpeechSynthesisVoice): boolean {
+  const langLower = voice.lang.toLowerCase();
+  return langLower.startsWith('en') && !isDisallowedRegionalVoice(voice);
+}
+
 /**
  * Intelligently chooses the best voice instance based on:
  * - Language (Hindi, Hinglish, English)
- * - Emotion & conversation context (playful vs serious vs educational)
- * - Gender appropriateness (default female for Tia, male for dramatic or requested context)
+ * - Emotion & conversation context
+ * - Gender appropriateness (default female for Tia)
  * - Natural/Neural engine priority
+ * - Strict guard against inappropriate regional languages (e.g. Assamese)
  */
 export function selectContextualVoice(
   criteria: VoiceSelectionCriteria,
@@ -363,94 +436,85 @@ export function selectContextualVoice(
     }
   }
 
-  const { detectedLanguage, emotion, preferredGender } = criteria;
+  const { detectedLanguage = 'hinglish', emotion = 'neutral', preferredGender = 'female' } = criteria;
 
-  // Score each voice against current criteria
-  let bestScore = -1;
+  // Score each candidate voice against criteria
+  let bestScore = -1000;
   let bestVoice: SpeechSynthesisVoice | null = null;
 
   for (const v of voices) {
-    let score = 0;
-    const l = v.lang.toLowerCase();
-    const n = v.name.toLowerCase();
+    // Exclude disallowed regional languages (e.g. Assamese, Bengali, Tamil) from auto-selection
+    if (isDisallowedRegionalVoice(v)) {
+      continue;
+    }
 
-    const isIndian =
-      l.includes('in') ||
-      l.includes('hi') ||
-      n.includes('india') ||
-      n.includes('hindi') ||
-      n.includes('neerja') ||
-      n.includes('swara') ||
-      n.includes('prabhat') ||
-      n.includes('ravi');
+    let score = 0;
+    const nameLower = v.name.toLowerCase();
+
+    const isHindi = isHindiVoice(v);
+    const isIndianEn = isIndianEnglishVoice(v);
+    const isGeneralEn = isGeneralEnglishVoice(v);
 
     const isFemale =
-      n.includes('female') ||
-      n.includes('woman') ||
-      n.includes('neerja') ||
-      n.includes('swara') ||
-      n.includes('heera') ||
-      n.includes('lekha') ||
-      n.includes('kalpana') ||
-      n.includes('samantha');
+      nameLower.includes('female') ||
+      nameLower.includes('woman') ||
+      nameLower.includes('neerja') ||
+      nameLower.includes('swara') ||
+      nameLower.includes('heera') ||
+      nameLower.includes('lekha') ||
+      nameLower.includes('kalpana') ||
+      nameLower.includes('zira') ||
+      nameLower.includes('samantha');
 
     const isMale =
-      n.includes('male') ||
-      n.includes('prabhat') ||
-      n.includes('ravi') ||
-      n.includes('david') ||
-      n.includes('guy');
+      nameLower.includes('male') ||
+      nameLower.includes('prabhat') ||
+      nameLower.includes('ravi') ||
+      nameLower.includes('david') ||
+      nameLower.includes('guy');
 
     const isNeural =
-      n.includes('natural') ||
-      n.includes('online') ||
-      n.includes('neural') ||
-      n.includes('google');
+      nameLower.includes('natural') ||
+      nameLower.includes('online') ||
+      nameLower.includes('neural') ||
+      nameLower.includes('google');
 
-    // Language matching
+    // Language suitability scoring
     if (detectedLanguage === 'hindi') {
-      if (l.startsWith('hi') || n.includes('hindi')) {
-        score += 30;
-      } else if (isIndian) {
-        score += 15;
-      }
+      if (isHindi) score += 100;
+      else if (isIndianEn) score += 50;
+      else if (isGeneralEn) score += 20;
     } else if (detectedLanguage === 'english') {
-      if (l.includes('en-in') || (isIndian && l.startsWith('en'))) {
-        score += 30;
-      } else if (l.startsWith('en')) {
-        score += 10;
-      }
+      if (isIndianEn) score += 100;
+      else if (isGeneralEn) score += 70;
+      else if (isHindi) score += 40;
     } else {
-      // Hinglish: neural Indian voices excel at mixed vocabulary
-      if (isIndian) {
-        score += 25;
-        if (l.includes('en-in') || l.includes('hi-in')) score += 10;
-      }
+      // Hinglish: Indian English and Hindi voices excel at mixed phrasing
+      if (isIndianEn) score += 100;
+      else if (isHindi) score += 95;
+      else if (isGeneralEn) score += 30;
     }
 
-    // Neural / Natural voices sound vastly more expressive and human
+    // Neural / Natural voices offer substantially better prosody
     if (isNeural) {
-      score += 12;
+      score += 15;
     }
 
-    // Gender matching:
-    // If male requested (e.g. dramatic / specific context), boost Indian male
+    // Gender matching (default female for Tia's voice identity)
     if (preferredGender === 'male') {
       if (isMale) score += 20;
+      else if (isFemale) score -= 10;
     } else {
-      // Default to female for Tia's signature identity
-      if (isFemale) score += 12;
-      else if (isMale) score -= 5;
+      if (isFemale) score += 20;
+      else if (isMale) score -= 10;
     }
 
-    // Emotion resonance:
-    // For serious or calm topics, mature voices like Swara or deep Indian timbre score higher
+    // Emotion resonance
     if (emotion === 'serious' || emotion === 'calm' || emotion === 'reassuring') {
-      if (n.includes('swara') || n.includes('mature') || isNeural) score += 5;
+      if (nameLower.includes('swara') || isNeural) score += 5;
     }
-    // For playful or excited topics, high-clarity expressive voices score higher
     if (emotion === 'playful' || emotion === 'funny' || emotion === 'excited') {
-      if (n.includes('neerja') || n.includes('natural') || isNeural) score += 5;
+      if (nameLower.includes('neerja') || isNeural) score += 5;
     }
 
     if (score > bestScore) {
@@ -459,14 +523,23 @@ export function selectContextualVoice(
     }
   }
 
-  // Fallback if no voice scored
+  // Safe fallback hierarchy: NEVER pick voices[0] if it's an inappropriate regional voice
   if (!bestVoice) {
-    bestVoice = voices[0] || null;
+    bestVoice =
+      voices.find((v) => isIndianEnglishVoice(v)) ||
+      voices.find((v) => isHindiVoice(v)) ||
+      voices.find((v) => isGeneralEnglishVoice(v) && (v.name.toLowerCase().includes('female') || v.name.toLowerCase().includes('zira'))) ||
+      voices.find((v) => isGeneralEnglishVoice(v)) ||
+      voices.find((v) => !isDisallowedRegionalVoice(v) && v.default) ||
+      voices.find((v) => !isDisallowedRegionalVoice(v)) ||
+      null;
   }
+
+  const voiceLabel = bestVoice ? bestVoice.name : 'Tia Voice';
 
   return {
     voice: bestVoice,
-    voiceLabel: bestVoice?.name || 'Tia Voice',
+    voiceLabel,
   };
 }
 
@@ -477,6 +550,10 @@ export interface SpeechSessionController {
   cancel: () => void;
 }
 
+// Module-level set to retain active utterances in memory.
+// This prevents Chromium V8 garbage-collection from prematurely killing active speech playback.
+const activeUtterancesSet = new Set<SpeechSynthesisUtterance>();
+
 /**
  * Speaks text naturally using emotion-aware prosody, utterance segmentation,
  * and conversational pauses.
@@ -484,6 +561,7 @@ export interface SpeechSessionController {
 export function speakEmotionally({
   text,
   emotion = 'neutral',
+  detectedLanguage = 'hinglish',
   voice,
   baseRate = 1.0,
   onStart,
@@ -492,6 +570,7 @@ export function speakEmotionally({
 }: {
   text: string;
   emotion?: TiaEmotion;
+  detectedLanguage?: 'hindi' | 'hinglish' | 'english';
   voice: SpeechSynthesisVoice | null;
   baseRate?: number;
   onStart?: () => void;
@@ -503,8 +582,23 @@ export function speakEmotionally({
     return { cancel: () => {} };
   }
 
-  // Cancel any ongoing speech
-  window.speechSynthesis.cancel();
+  // Unpause Web Speech engine if previously paused or stuck
+  if (window.speechSynthesis.paused) {
+    try {
+      window.speechSynthesis.resume();
+    } catch {
+      // ignore
+    }
+  }
+
+  // Cancel any prior speech if active
+  if (window.speechSynthesis.speaking || window.speechSynthesis.pending) {
+    try {
+      window.speechSynthesis.cancel();
+    } catch {
+      // ignore
+    }
+  }
 
   const cleaned = cleanTextForSpeech(text);
   if (!cleaned) {
@@ -529,8 +623,13 @@ export function speakEmotionally({
       clearTimeout(pauseTimer);
       pauseTimer = null;
     }
+    activeUtterancesSet.clear();
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-      window.speechSynthesis.cancel();
+      try {
+        window.speechSynthesis.cancel();
+      } catch {
+        // ignore
+      }
     }
   };
 
@@ -545,17 +644,34 @@ export function speakEmotionally({
     const { text: segText, isQuestion } = segments[currentSegmentIndex];
     const utterance = new SpeechSynthesisUtterance(segText);
 
+    // Keep reference in module-level set to prevent GC collection during speech playback
+    activeUtterancesSet.add(utterance);
+
+    // Configure voice and language
     if (voice) {
       utterance.voice = voice;
-      // Set utterance language to match voice language for optimal phonetics
-      utterance.lang = voice.lang;
+      // Guard against non-Hindi/English voice language codes
+      if (!isDisallowedRegionalVoice(voice) && voice.lang) {
+        utterance.lang = voice.lang;
+      } else {
+        utterance.lang = detectedLanguage === 'hindi' ? 'hi-IN' : 'en-IN';
+      }
+    } else {
+      // Default language tag if no voice instance attached
+      if (detectedLanguage === 'hindi') {
+        utterance.lang = 'hi-IN';
+      } else if (detectedLanguage === 'english') {
+        utterance.lang = 'en-IN';
+      } else {
+        utterance.lang = 'en-IN';
+      }
     }
 
     // Dynamic emotion rate and pitch
     const calculatedRate = Math.max(0.65, Math.min(1.5, baseRate * prosody.rateMultiplier));
     utterance.rate = calculatedRate;
 
-    // Slight rising inflection for questions
+    // Rising inflection for questions
     let segmentPitch = prosody.pitch;
     if (isQuestion) {
       segmentPitch = Math.min(1.35, segmentPitch + 0.08);
@@ -570,11 +686,11 @@ export function speakEmotionally({
     };
 
     utterance.onend = () => {
+      activeUtterancesSet.delete(utterance);
       if (isCancelled) return;
       currentSegmentIndex++;
 
       if (currentSegmentIndex < segments.length) {
-        // Natural breath pause between sentences/thoughts
         pauseTimer = setTimeout(() => {
           speakNextSegment();
         }, prosody.pauseDurationMs);
@@ -584,7 +700,7 @@ export function speakEmotionally({
     };
 
     utterance.onerror = (e) => {
-      // Don't treat user interruption / cancel as an error
+      activeUtterancesSet.delete(utterance);
       if (e.error === 'canceled' || e.error === 'interrupted' || isCancelled) {
         return;
       }
@@ -593,11 +709,31 @@ export function speakEmotionally({
       onEnd?.();
     };
 
-    window.speechSynthesis.speak(utterance);
+    // Ensure engine is not in paused state before dispatching
+    if (window.speechSynthesis.paused) {
+      try {
+        window.speechSynthesis.resume();
+      } catch {
+        // ignore
+      }
+    }
+
+    try {
+      window.speechSynthesis.speak(utterance);
+    } catch (err) {
+      console.warn('speechSynthesis.speak invocation error:', err);
+      activeUtterancesSet.delete(utterance);
+      onError?.(err);
+      onEnd?.();
+    }
   };
 
-  // Start speaking first segment
-  speakNextSegment();
+  // Short micro-tick allows any previous cancellation to complete in Chromium IPC queue
+  setTimeout(() => {
+    if (!isCancelled) {
+      speakNextSegment();
+    }
+  }, 35);
 
   return { cancel };
 }

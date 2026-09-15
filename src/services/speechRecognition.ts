@@ -77,6 +77,7 @@ export interface SpeechRecognitionController {
   abort: () => void;
   abortAsync: () => Promise<void>;
   isStarted: () => boolean;
+  resetUtterance?: () => void;
 }
 
 export interface SpeechRecognitionOptions {
@@ -131,6 +132,10 @@ export function createSpeechRecognizer(
     let isRunning = false;
     let isAborting = false;
 
+    // Track finalized segments and previous phrases for the current utterance
+    let currentUtteranceFinals: string[] = [];
+    let lastSeenFinalText = '';
+
     recognition.onstart = () => {
       isRunning = true;
       isAborting = false;
@@ -138,7 +143,7 @@ export function createSpeechRecognizer(
     };
 
     recognition.onresult = (event: ISpeechRecognitionEvent) => {
-      // 1. Inspect each NEW SpeechRecognition result independently with all recognition alternatives
+      // 1. Inspect each NEW SpeechRecognition result independently with all recognition alternatives (for wake-word)
       if (callbacks.onNewResult) {
         for (let i = event.resultIndex; i < event.results.length; ++i) {
           const res = event.results[i];
@@ -162,26 +167,53 @@ export function createSpeechRecognizer(
         }
       }
 
-      // 2. Standard cumulative transcript calculation for non-wake question listeners
+      // 2. Transcript calculation for question listeners:
+      // Derive ONLY from NEW result entries (event.resultIndex onward) for the current utterance.
+      // Do NOT reuse or concatenate past recognition results.
       if (callbacks.onResult) {
-        let interim = '';
-        let final = '';
+        let currentInterim = '';
+        let hasNewFinal = false;
 
-        for (let i = 0; i < event.results.length; ++i) {
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
           const item = event.results[i];
           if (!item || !item[0]) continue;
+          const text = (item[0].transcript || '').trim();
+          if (!text) continue;
+
           if (item.isFinal) {
-            final += item[0].transcript + ' ';
+            // Prevent duplicate final events (Chrome sometimes re-emits same final index or text)
+            if (text.toLowerCase() !== lastSeenFinalText.toLowerCase()) {
+              currentUtteranceFinals.push(text);
+              lastSeenFinalText = text;
+              hasNewFinal = true;
+            }
           } else {
-            interim += item[0].transcript;
+            // Interim result: avoid duplicating a just-finalized phrase or echo
+            const isDuplicateOfFinal =
+              Boolean(lastSeenFinalText) &&
+              (text.toLowerCase() === lastSeenFinalText.toLowerCase() ||
+                lastSeenFinalText.toLowerCase().endsWith(text.toLowerCase()));
+
+            if (!isDuplicateOfFinal) {
+              currentInterim = text;
+            }
           }
         }
 
-        const fullTranscript = `${final} ${interim}`.trim();
-        const hasFinal = Boolean(final.trim());
+        // Combine current utterance finals and active interim
+        let currentUtterance = '';
+        if (currentUtteranceFinals.length > 0) {
+          currentUtterance = currentUtteranceFinals.join(' ');
+        }
+        if (currentInterim) {
+          currentUtterance = currentUtterance
+            ? `${currentUtterance} ${currentInterim}`
+            : currentInterim;
+        }
+        currentUtterance = currentUtterance.trim();
 
-        if (fullTranscript) {
-          callbacks.onResult(fullTranscript, hasFinal);
+        if (currentUtterance) {
+          callbacks.onResult(currentUtterance, hasNewFinal);
         }
       }
     };
@@ -306,6 +338,10 @@ export function createSpeechRecognizer(
         });
       },
       isStarted: () => isRunning,
+      resetUtterance: () => {
+        currentUtteranceFinals = [];
+        lastSeenFinalText = '';
+      },
     };
 
     return controller;
