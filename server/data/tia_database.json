@@ -416,6 +416,24 @@
       "memory_type": "user_requested",
       "created_at": "2026-09-14T08:24:55.193Z",
       "updated_at": "2026-09-14T08:24:55.193Z"
+    },
+    {
+      "id": "mem-1789463044770-afee8653",
+      "user_id": "usr-anurag-001",
+      "memory_key": "anurag_likes_drinkin",
+      "memory_value": "Anurag likes drinking black coffee",
+      "memory_type": "user_requested",
+      "created_at": "2026-09-15T09:04:04.769Z",
+      "updated_at": "2026-09-15T09:04:04.769Z"
+    },
+    {
+      "id": "mem-1789463044771-8955e4f8",
+      "user_id": "usr-anurag-001",
+      "memory_key": "i_like_drinking_blac",
+      "memory_value": "I like drinking black coffee",
+      "memory_type": "user_requested",
+      "created_at": "2026-09-15T09:04:04.771Z",
+      "updated_at": "2026-09-15T09:04:04.771Z"
     }
   ],
   "sessions": [
@@ -926,10 +944,38 @@
           "timestamp": 1789379270762,
           "emotion": "curious",
           "detectedLanguage": "hinglish"
+        },
+        {
+          "id": "usr-1789462717247",
+          "role": "user",
+          "content": "हेलो हेलो",
+          "timestamp": 1789462717247
+        },
+        {
+          "id": "tia-1789462717248",
+          "role": "assistant",
+          "content": "Hello hello boss! Haan bolo, main sun rahi hoon. Kya chal raha hai aaj?",
+          "timestamp": 1789462717248,
+          "emotion": "playful",
+          "detectedLanguage": "hinglish"
+        },
+        {
+          "id": "usr-1789462733398",
+          "role": "user",
+          "content": "नींद लग रहा है",
+          "timestamp": 1789462733398
+        },
+        {
+          "id": "tia-1789462733399",
+          "role": "assistant",
+          "content": "Arey boss, startup founder ki life itni busy hoti hai ki neend ka quota hi khatam ho jata hai. Ek cup kadak chai ya coffee lo, thoda energize ho jao, ya phir agar bahut zor ki neend hai toh 10 minute ka power nap le lo, main yahin hoon. 😉",
+          "timestamp": 1789462733399,
+          "emotion": "empathetic",
+          "detectedLanguage": "hinglish"
         }
       ],
       "created_at": "2026-09-12T08:51:17.217Z",
-      "updated_at": "2026-09-14T09:47:50.761Z"
+      "updated_at": "2026-09-15T08:58:53.399Z"
     },
     {
       "id": "conv-1789203333817-9f470af1",
@@ -1200,10 +1246,66 @@
           "timestamp": 1789380922968,
           "emotion": "happy",
           "detectedLanguage": "hinglish"
+        },
+        {
+          "id": "usr-1789462863595",
+          "role": "user",
+          "content": "Aaj kaun sa din hai?",
+          "timestamp": 1789462863595
+        },
+        {
+          "id": "tia-1789462863596",
+          "role": "assistant",
+          "content": "Aaj Tuesday hai boss, 15 September 2026. Hafte ka mid-point, lekin aapke startup grind ke liye toh har din hi weekend jaisa hona chahiye, hai na? 😉",
+          "timestamp": 1789462863596,
+          "emotion": "playful",
+          "detectedLanguage": "hinglish"
+        },
+        {
+          "id": "usr-1789462940434",
+          "role": "user",
+          "content": "Aaj kaun sa din hai?",
+          "timestamp": 1789462940434
+        },
+        {
+          "id": "tia-1789462940435",
+          "role": "assistant",
+          "content": "Aaj Tuesday hai boss, 15 September 2026. Hafte ka ek aur din, chalo kuch dhamakedar karte hain aaj! 😄",
+          "timestamp": 1789462940435,
+          "emotion": "happy",
+          "detectedLanguage": "hinglish"
+        },
+        {
+          "id": "usr-1789463037077",
+          "role": "user",
+          "content": "Aaj kaun sa din hai?",
+          "timestamp": 1789463037077
+        },
+        {
+          "id": "tia-1789463037078",
+          "role": "assistant",
+          "content": "Aaj Tuesday hai boss, 15 September 2026. Hafte ka bas shuruwaati din hai, startup ke kaam mein lag gaye kya? 😎",
+          "timestamp": 1789463037078,
+          "emotion": "playful",
+          "detectedLanguage": "hinglish"
+        },
+        {
+          "id": "usr-1789463044773",
+          "role": "user",
+          "content": "Please remember that I like drinking black coffee.",
+          "timestamp": 1789463044773
+        },
+        {
+          "id": "tia-1789463044774",
+          "role": "assistant",
+          "content": "Bilkul boss, yaad rakh liya! Black coffee, matlab aapka style bilkul strong aur sorted hai. I will keep this in mind for our future caffeine conversations! ☕️😎",
+          "timestamp": 1789463044774,
+          "emotion": "happy",
+          "detectedLanguage": "hinglish"
         }
       ],
       "created_at": "2026-09-12T08:55:33.817Z",
-      "updated_at": "2026-09-14T10:15:22.967Z"
+      "updated_at": "2026-09-15T09:04:04.774Z"
     }
   ]
 }

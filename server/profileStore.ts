@@ -59,6 +59,7 @@ function findExistingProfilePath(): string | null {
     path.resolve(process.cwd(), 'server', 'data', 'owner_profile.json'),
     path.resolve(__dirname, 'data', 'owner_profile.json'),
     path.resolve(__dirname, 'server', 'data', 'owner_profile.json'),
+    path.resolve(__dirname, '..', 'server', 'data', 'owner_profile.json'),
     path.resolve(os.tmpdir(), 'tia_data', 'owner_profile.json'),
   ];
   for (const p of candidatePaths) {
@@ -153,6 +154,15 @@ export function getOwnerProfile(): OwnerProfile {
  * Atomically saves the owner profile to persistent disk storage.
  */
 export function saveOwnerProfile(profile: OwnerProfile): boolean {
+  profile.last_updated = new Date().toISOString();
+  cachedProfile = profile;
+
+  if (isServerless) {
+    // On Vercel / serverless, filesystem is read-only.
+    // Retain updated profile in memory for current invocation without disk write.
+    return true;
+  }
+
   try {
     const filePath = getStoragePath();
     const dir = path.dirname(filePath);
@@ -160,15 +170,12 @@ export function saveOwnerProfile(profile: OwnerProfile): boolean {
       fs.mkdirSync(dir, { recursive: true });
     }
 
-    profile.last_updated = new Date().toISOString();
-    cachedProfile = profile;
-
     const tmpPath = `${filePath}.${Date.now()}.tmp`;
     fs.writeFileSync(tmpPath, JSON.stringify(profile, null, 2), 'utf-8');
     fs.renameSync(tmpPath, filePath);
     return true;
   } catch (err) {
-    console.error('Failed to write owner_profile.json:', err);
+    console.warn('Failed to write owner_profile.json (gracefully kept in memory):', err);
     return false;
   }
 }

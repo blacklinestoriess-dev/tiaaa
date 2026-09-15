@@ -117,6 +117,7 @@ function findExistingDbFile(): string | null {
     path.resolve(process.cwd(), 'server', 'data', 'tia_database.json'),
     path.resolve(__dirname, 'data', 'tia_database.json'),
     path.resolve(__dirname, 'server', 'data', 'tia_database.json'),
+    path.resolve(__dirname, '..', 'server', 'data', 'tia_database.json'),
     path.resolve(os.tmpdir(), 'tia_data', 'tia_database.json'),
   ];
   for (const p of candidatePaths) {

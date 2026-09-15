@@ -274,17 +274,21 @@ export async function handleChatRequest(req: IncomingMessage, res: ServerRespons
     occupation_status: 'working on a startup',
   };
 
-  if (token) {
-    const auth = getUserByToken(token);
-    if (auth) {
-      userId = auth.user.id;
-      profile = auth.profile;
+  try {
+    if (token) {
+      const auth = getUserByToken(token);
+      if (auth) {
+        userId = auth.user.id;
+        profile = auth.profile;
+      }
+    } else {
+      const dbProfile = getUserProfile('usr-anurag-001');
+      if (dbProfile) {
+        profile = dbProfile;
+      }
     }
-  } else {
-    const dbProfile = getUserProfile('usr-anurag-001');
-    if (dbProfile) {
-      profile = dbProfile;
-    }
+  } catch (authErr) {
+    console.warn('Profile lookup encountered an issue (using fallback):', authErr);
   }
 
   try {
@@ -301,8 +305,14 @@ export async function handleChatRequest(req: IncomingMessage, res: ServerRespons
       return;
     }
 
-    // Load only this user's private memories
-    const userMemories = getUserMemories(userId);
+    // Load only this user's private memories safely
+    let userMemories: any[] = [];
+    try {
+      userMemories = getUserMemories(userId);
+    } catch (memReadErr) {
+      console.warn('Could not read user memories:', memReadErr);
+      userMemories = [];
+    }
 
     // Build system instruction with this user's profile and isolated memories
     const systemInstruction = buildSystemInstruction(
@@ -373,48 +383,58 @@ export async function handleChatRequest(req: IncomingMessage, res: ServerRespons
     const rawText = response.text.trim();
     const parsedData = parseAssistantResponse(rawText);
 
-    // Execute memory actions for this authenticated user
-    if (parsedData.memoryAction && parsedData.memoryAction.action !== 'none') {
-      const { action, field, value, fact } = parsedData.memoryAction;
-      if (action === 'remember' && fact && fact.trim()) {
-        addUserMemory(userId, fact.trim(), 'user_requested');
-      } else if (action === 'forget' && fact && fact.trim()) {
-        forgetUserMemoryByQuery(userId, fact.trim());
-      } else if (action === 'update_field' && field && value !== undefined) {
-        if (field === 'location') {
-          updateUserProfile(userId, { address: String(value).trim() });
-        } else if (field === 'occupation_status') {
-          updateUserProfile(userId, { occupation_status: String(value).trim() });
-        } else if (field === 'full_name') {
-          updateUserProfile(userId, { full_name: String(value).trim() });
+    // Execute memory actions for this authenticated user safely
+    try {
+      if (parsedData.memoryAction && parsedData.memoryAction.action !== 'none') {
+        const { action, field, value, fact } = parsedData.memoryAction;
+        if (action === 'remember' && fact && fact.trim()) {
+          addUserMemory(userId, fact.trim(), 'user_requested');
+        } else if (action === 'forget' && fact && fact.trim()) {
+          forgetUserMemoryByQuery(userId, fact.trim());
+        } else if (action === 'update_field' && field && value !== undefined) {
+          if (field === 'location') {
+            updateUserProfile(userId, { address: String(value).trim() });
+          } else if (field === 'occupation_status') {
+            updateUserProfile(userId, { occupation_status: String(value).trim() });
+          } else if (field === 'full_name') {
+            updateUserProfile(userId, { full_name: String(value).trim() });
+          }
         }
       }
-    }
 
-    // Fallback explicit regex checks for memory commands
-    const explicitRememberMatch = userMessage.match(
-      /(?:please\s+)?(?:remember\s+that|save\s+this[:\s]+|yaad\s+rakhna\s+(?:ki)?|note\s+down\s+that|note\s+that)\s+(.+)/i
-    );
-    if (explicitRememberMatch && explicitRememberMatch[1]) {
-      const factText = explicitRememberMatch[1].trim().replace(/[.!?]+$/, '');
-      if (factText.length > 2) {
-        addUserMemory(userId, factText, 'user_requested');
+      // Fallback explicit regex checks for memory commands
+      const explicitRememberMatch = userMessage.match(
+        /(?:please\s+)?(?:remember\s+that|save\s+this[:\s]+|yaad\s+rakhna\s+(?:ki)?|note\s+down\s+that|note\s+that)\s+(.+)/i
+      );
+      if (explicitRememberMatch && explicitRememberMatch[1]) {
+        const factText = explicitRememberMatch[1].trim().replace(/[.!?]+$/, '');
+        if (factText.length > 2) {
+          addUserMemory(userId, factText, 'user_requested');
+        }
       }
-    }
 
-    const explicitForgetMatch = userMessage.match(
-      /(?:forget\s+that|remove\s+that\s+memory|delete\s+that\s+memory|bhool\s+jao\s+(?:ki)?)\s+(.+)/i
-    );
-    if (explicitForgetMatch && explicitForgetMatch[1]) {
-      const queryText = explicitForgetMatch[1].trim().replace(/[.!?]+$/, '');
-      if (queryText.length > 1) {
-        forgetUserMemoryByQuery(userId, queryText);
+      const explicitForgetMatch = userMessage.match(
+        /(?:forget\s+that|remove\s+that\s+memory|delete\s+that\s+memory|bhool\s+jao\s+(?:ki)?)\s+(.+)/i
+      );
+      if (explicitForgetMatch && explicitForgetMatch[1]) {
+        const queryText = explicitForgetMatch[1].trim().replace(/[.!?]+$/, '');
+        if (queryText.length > 1) {
+          forgetUserMemoryByQuery(userId, queryText);
+        }
       }
+    } catch (memErr) {
+      console.warn('Memory action skipped or persistence unavailable:', memErr);
     }
 
-    // Refresh updated user profile and memories
-    const updatedProfile = getUserProfile(userId) || profile;
-    const updatedMemories = getUserMemories(userId);
+    // Refresh updated user profile and memories safely
+    let updatedProfile = profile;
+    let updatedMemories: any[] = [];
+    try {
+      updatedProfile = getUserProfile(userId) || profile;
+      updatedMemories = getUserMemories(userId);
+    } catch (pErr) {
+      console.warn('Could not refresh profile/memories (using cached):', pErr);
+    }
 
     // Save updated conversation for this user
     try {
@@ -440,7 +460,7 @@ export async function handleChatRequest(req: IncomingMessage, res: ServerRespons
       // Keep recent 50 messages
       saveUserConversation(userId, newMessages.slice(-50));
     } catch (convErr) {
-      console.warn('Failed to save conversation history:', convErr);
+      console.warn('Failed to save conversation history (gracefully ignored):', convErr);
     }
 
     res.statusCode = 200;
@@ -469,8 +489,14 @@ export async function handleChatRequest(req: IncomingMessage, res: ServerRespons
       ? 'Arre boss! Server pe thodi bheed lag gayi hai. Ek minute baad dobara bolo, tab tak main yahin hoon! ☕'
       : 'Arre boss, network mein thoda jhol ho gaya lagta hai. Ek baar dobara bolo na please? 😄';
 
-    const currentProfile = getUserProfile(userId) || profile;
-    const currentMemories = getUserMemories(userId);
+    let currentProfile = profile;
+    let currentMemories: any[] = [];
+    try {
+      currentProfile = getUserProfile(userId) || profile;
+      currentMemories = getUserMemories(userId);
+    } catch {
+      // Fallback cleanly without crashing
+    }
 
     res.statusCode = 200;
     res.setHeader('Content-Type', 'application/json');
