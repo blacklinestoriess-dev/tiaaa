@@ -114,26 +114,26 @@ export function isTiaVoiceEcho(
   // Exact match
   if (candNorm === tiaNorm) return true;
 
-  // Substring match
-  if (tiaNorm.includes(candNorm) && (candNorm.length >= 8 || candNorm.split(' ').length >= 2)) {
+  // Significant substring match (at least 15 chars or 4+ words to prevent matching short common phrases)
+  if (tiaNorm.includes(candNorm) && (candNorm.length >= 15 || candNorm.split(' ').length >= 4)) {
     return true;
   }
-  if (candNorm.includes(tiaNorm)) {
+  if (candNorm.includes(tiaNorm) && tiaNorm.length >= 15) {
     return true;
   }
 
-  // High word overlap
-  const candWords = candNorm.split(' ').filter((w) => w.length > 2);
-  const tiaWords = new Set(tiaNorm.split(' ').filter((w) => w.length > 2));
+  // Very high word overlap (>= 80% of longer distinctive words)
+  const candWords = candNorm.split(' ').filter((w) => w.length > 3);
+  const tiaWords = new Set(tiaNorm.split(' ').filter((w) => w.length > 3));
 
-  if (candWords.length >= 2 && tiaWords.size > 0) {
+  if (candWords.length >= 4 && tiaWords.size > 0) {
     let matchingCount = 0;
     for (const word of candWords) {
       if (tiaWords.has(word)) {
         matchingCount++;
       }
     }
-    if (matchingCount / candWords.length >= 0.5) {
+    if (matchingCount / candWords.length >= 0.8) {
       return true;
     }
   }
@@ -142,26 +142,24 @@ export function isTiaVoiceEcho(
 }
 
 /**
- * Validates that candidate speech is neither an acoustic echo nor a duplicate of the previous query.
+ * Validates that candidate speech is neither an acoustic echo nor an instant duplicate of the previous query.
  */
 export function isStaleOrEchoTranscript(
   candidateTranscript: string,
   lastTiaSpokenText: string,
-  lastUserQuery: string
+  lastUserQuery: string,
+  lastTiaSpeechEndTime = 0
 ): boolean {
   if (!candidateTranscript) return true;
   const candNorm = normalizeTranscript(candidateTranscript);
   if (!candNorm || candNorm.length < 2) return true;
 
-  if (isTiaVoiceEcho(candidateTranscript, lastTiaSpokenText)) {
-    return true;
-  }
+  // If speech ended more than 1.2 seconds ago, speakers are silent, so acoustic echo is impossible
+  const isAcousticEchoPossible =
+    lastTiaSpeechEndTime === 0 || Date.now() - lastTiaSpeechEndTime < 1200;
 
-  if (lastUserQuery) {
-    const prevNorm = normalizeTranscript(lastUserQuery);
-    if (prevNorm && candNorm === prevNorm) {
-      return true;
-    }
+  if (isAcousticEchoPossible && isTiaVoiceEcho(candidateTranscript, lastTiaSpokenText)) {
+    return true;
   }
 
   return false;

@@ -82,6 +82,14 @@ export interface VoiceSelectionCriteria {
   userPreferenceURI?: string;
 }
 
+// Lightweight Personal User Profile (Stored ONLY in browser localStorage)
+export interface TiaLocalProfile {
+  name: string;
+  place?: string;
+  work?: string;
+  interests?: string;
+}
+
 // User Profile Database Schema
 export interface UserProfile {
   id: string;

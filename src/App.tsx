@@ -8,6 +8,7 @@ import type {
   OwnerProfile,
   AuthSession,
   UserProfile,
+  TiaLocalProfile,
 } from './types';
 import { Header } from './components/Header';
 import { VoiceOrb } from './components/VoiceOrb';
@@ -15,6 +16,7 @@ import { VoiceControls } from './components/VoiceControls';
 import { ConversationPreview } from './components/ConversationPreview';
 import { SettingsModal } from './components/SettingsModal';
 import { ErrorMessage } from './components/ErrorMessage';
+import { PersonalizeScreen } from './components/PersonalizeScreen';
 import {
   WakeWordDebugIndicator,
   type WakeWordDebugInfo,
@@ -114,6 +116,32 @@ export default function App() {
     } catch {
       return null;
     }
+  });
+
+  // Local Personal Profile State (stored strictly in user's browser via localStorage: 'tia_user_profile')
+  const [localProfile, setLocalProfile] = useState<TiaLocalProfile | null>(() => {
+    try {
+      const cached = localStorage.getItem('tia_user_profile');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (parsed && typeof parsed === 'object') {
+          const profileName = (parsed.name || parsed.full_name || '').trim();
+          if (profileName) {
+            return {
+              name: profileName,
+              place: (parsed.place || parsed.location || parsed.address || '').trim(),
+              work: (parsed.work || parsed.current_work || parsed.occupation_status || '').trim(),
+              interests: (parsed.interests || '').trim(),
+              createdAt: parsed.createdAt || new Date().toISOString(),
+              updatedAt: parsed.updatedAt || new Date().toISOString(),
+            };
+          }
+        }
+      }
+    } catch {
+      // ignore
+    }
+    return null;
   });
 
   const [userProfile, setUserProfile] = useState<UserProfile | null>(() => {
@@ -578,6 +606,7 @@ export default function App() {
             })),
             funnyMode: settings.funnyMode,
             preferredLanguage: settings.languagePreference,
+            localProfile,
           }),
         });
 
@@ -654,6 +683,7 @@ export default function App() {
       speakResponse,
       stopSpeech,
       clearFollowUpTimer,
+      localProfile,
     ]
   );
   submitToTiaRef.current = submitToTia;
@@ -1611,6 +1641,66 @@ export default function App() {
     }
   }, [authSession?.token]);
 
+  // Handle first-time personal profile saving (stored strictly in browser's localStorage)
+  const handleSavePersonalProfile = useCallback((profile: TiaLocalProfile) => {
+    try {
+      localStorage.setItem('tia_user_profile', JSON.stringify(profile));
+    } catch (err) {
+      console.warn('Could not save local user profile to localStorage:', err);
+    }
+    setLocalProfile(profile);
+
+    const greetingMsg: Message = {
+      id: `tia-greeting-${Date.now()}`,
+      role: 'assistant',
+      content: `Hi ${profile.name} 👋 I'm Tia. How can I help you?`,
+      timestamp: Date.now(),
+      emotion: 'happy',
+      voiceName: 'Tia Hindi/English',
+      detectedLanguage: 'english',
+    };
+    setMessages([greetingMsg]);
+  }, []);
+
+  // Handle personal profile update (from Settings Modal)
+  const handleUpdateLocalProfile = useCallback((updated: TiaLocalProfile) => {
+    try {
+      localStorage.setItem('tia_user_profile', JSON.stringify(updated));
+    } catch (err) {
+      console.warn('Could not update local user profile in localStorage:', err);
+    }
+    setLocalProfile(updated);
+  }, []);
+
+  // Handle personal profile reset (removes local profile from browser and reopens Personalize setup)
+  const handleResetLocalProfile = useCallback(() => {
+    try {
+      localStorage.removeItem('tia_user_profile');
+    } catch (err) {
+      console.warn('Could not remove local user profile from localStorage:', err);
+    }
+    setLocalProfile(null);
+    setMessages([]);
+    setIsSettingsOpen(false);
+  }, []);
+
+  // Default greeting for recognized local user on clean load
+  useEffect(() => {
+    if (localProfile?.name && messages.length === 0) {
+      setMessages([
+        {
+          id: `tia-greeting-${Date.now()}`,
+          role: 'assistant',
+          content: `Hi ${localProfile.name} 👋 I'm Tia. How can I help you?`,
+          timestamp: Date.now(),
+          emotion: 'happy',
+          voiceName: 'Tia Hindi/English',
+          detectedLanguage: 'english',
+        },
+      ]);
+    }
+  }, [localProfile?.name]);
+
   const lastAssistantMsg =
     [...messages].reverse().find((m) => m.role === 'assistant') || null;
 
@@ -1627,6 +1717,14 @@ export default function App() {
       <div className="absolute top-0 left-1/2 -translate-x-1/2 w-96 h-96 bg-rose-500/10 rounded-full blur-3xl pointer-events-none" />
       <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-96 h-96 bg-violet-600/10 rounded-full blur-3xl pointer-events-none" />
 
+      {/* First-Time "Personalize Tia" Screen (when no local profile exists in browser) */}
+      {!localProfile && (
+        <PersonalizeScreen
+          isDark={isDark}
+          onContinue={handleSavePersonalProfile}
+        />
+      )}
+
       {/* Top Header */}
       <Header
         settings={settings}
@@ -1635,6 +1733,7 @@ export default function App() {
         }
         onOpenSettings={() => setIsSettingsOpen(true)}
         isDark={isDark}
+        localProfile={localProfile}
         ownerProfile={ownerProfile}
       />
 
@@ -1707,6 +1806,9 @@ export default function App() {
         availableVoices={availableVoices}
         onTestVoice={handleTestVoice}
         isDark={isDark}
+        localProfile={localProfile}
+        onUpdateLocalProfile={handleUpdateLocalProfile}
+        onResetLocalProfile={handleResetLocalProfile}
         ownerProfile={ownerProfile}
         userProfile={userProfile}
         onUpdateOwnerProfile={handleUpdateOwnerProfile}

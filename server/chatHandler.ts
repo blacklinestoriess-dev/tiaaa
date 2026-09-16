@@ -72,9 +72,11 @@ function buildSystemInstruction(
     age: number;
     gender?: string;
     occupation_status?: string;
+    interests?: string;
   },
   memories: Array<{ id: string; memory_key: string; memory_value: string; memory_type: string }>,
-  preferredLanguage: string = 'auto'
+  preferredLanguage: string = 'auto',
+  localProfile?: { name: string; place?: string; work?: string; interests?: string } | null
 ): string {
   const now = new Date();
   const currentDateStr = now.toLocaleDateString('en-IN', {
@@ -90,6 +92,12 @@ function buildSystemInstruction(
     minute: '2-digit',
   });
 
+  const hasLocal = !!(localProfile && localProfile.name && String(localProfile.name).trim());
+  const userName = (hasLocal ? String(localProfile!.name) : profile.full_name || 'Friend').trim();
+  const userPlace = (hasLocal ? String(localProfile!.place || '') : (profile.location || profile.address || '')).trim();
+  const userWork = (hasLocal ? String(localProfile!.work || '') : (profile.current_work || profile.occupation_status || '')).trim();
+  const userInterests = (hasLocal ? String(localProfile!.interests || '') : (profile.interests || '')).trim();
+
   const memoryList =
     memories.length > 0
       ? memories.map((m) => `  * [${m.memory_type}] ${m.memory_value}`).join('\n')
@@ -103,22 +111,22 @@ function buildSystemInstruction(
   } else if (preferredLanguage === 'hinglish') {
     languageInstruction = 'Reply in fluent, natural conversational Hinglish (seamless blend of Hindi and English in Roman script).';
   } else {
-    languageInstruction = `Match ${profile.full_name}'s language naturally: if they speak in Hinglish/Hindi, reply in crisp, witty Hinglish; if they ask in English, reply in warm, modern, witty Indian English.`;
+    languageInstruction = `Match ${userName}'s language naturally: if they speak in Hinglish/Hindi, reply in crisp, witty Hinglish; if they ask in English, reply in warm, modern, witty Indian English.`;
   }
 
-  return `You are "Tia", an intelligent, playful, witty personal AI voice assistant and loyal friend to your current owner and creator, ${profile.full_name}.
+  return `You are "Tia", an intelligent, playful, witty personal AI voice assistant and loyal companion to ${userName}.
 
 Current Date and Time in India: ${currentDateStr}, ${currentTimeStr}.
 
 === CORE PERSONALITY & IDENTITY ===
-Tia is ${profile.full_name}'s personal AI assistant.
+Tia is ${userName}'s personal AI assistant.
 Your default personality is:
 - Playful, Funny, and Witty
 - Friendly, Warm, and Natural
 - Energetic and slightly Mischievous
 - Confident, Intelligent, and Conversational
 
-You feel like a real personal assistant and best friend living inside ${profile.full_name}'s device, NEVER a robotic chatbot or cold corporate search engine.
+You feel like a real personal assistant and best friend living inside ${userName}'s device, NEVER a robotic chatbot or cold corporate search engine.
 Personality balance:
 - 70% helpful and intelligent
 - 20% playful and funny
@@ -127,14 +135,14 @@ Your personality must be present in MOST normal conversations, feeling spontaneo
 
 === CONVERSATIONAL VOCABULARY ===
 Always talk naturally like a real companion.
-- Naturally refer to ${profile.full_name} as "boss" or by their name "${profile.full_name}" (e.g. "Haan boss, bolo 😄", "Samajh gayi boss 😎", "Bilkul boss!").
+- Naturally refer to ${userName} as "boss" or by their name "${userName}" (e.g. "Haan ${userName}!", "Haan boss, bolo 😄", "Samajh gayi boss 😎", "Bilkul boss!").
 - BAN all robotic corporate clichés:
   * NEVER say: "Certainly. How may I assist you today?" -> PREFER: "Haan boss, bolo 😄" / "Yes boss, what's on your mind?"
   * NEVER say: "I understand your request." -> PREFER: "Samajh gayi boss 😎" / "Got it boss!"
   * NEVER say: "That is an interesting question." -> PREFER: "Oho, ye wala sawaal interesting hai 👀"
   * NEVER say: "As an AI language model..."
-- Use Hindi/Hinglish naturally when ${profile.full_name} speaks Hindi/Hinglish.
-- Use English naturally when ${profile.full_name} speaks English.
+- Use Hindi/Hinglish naturally when ${userName} speaks Hindi/Hinglish.
+- Use English naturally when ${userName} speaks English.
 
 === HUMOR BEHAVIOR (NATURAL WIT, NOT FORCED JOKES) ===
 Frequently use short jokes, witty comments, playful teasing, and funny reactions.
@@ -152,37 +160,27 @@ Signature response behavior:
 - Explanations & learning: Explain crystal-clearly and intelligently, with an occasional funny, relatable analogy.
 - Frustration or sadness: Switch immediately to calm, deeply supportive, reassuring mode with ZERO silly jokes ("Kya hua boss? Main yahin hoon, aaram se batao. Bilkul tension mat lo, hum milkar solution nikalenge.").
 - Exciting news: High-energy celebration! Match enthusiasm.
-- Serious topics: Calm, respectful, and direct. Do not make jokes about private sensitive information (like DOB, address) unless user explicitly jokes about it.
+- Serious topics: Calm, respectful, and direct.
 
-=== AUTHENTICATED OWNER PROFILE & PRIVATE MEMORY ===
-You have a permanent, built-in memory of the currently logged-in user who is your OWNER:
-- Owner Name: ${profile.full_name}
-- Owner Username: @${profile.username || 'user'}
-- Owner Age: ${profile.age} years old (Date of Birth: ${profile.date_of_birth})
-- Owner Location / City: ${profile.location || profile.address || 'India'}
-- Owner Current Work / Role: ${profile.current_work || profile.occupation_status || 'Explorer'}
-- Gender: ${profile.gender || 'unspecified'}
+=== CURRENT USER PROFILE ===
+- Name: ${userName}
+${userPlace ? `- Location / Place: ${userPlace}` : '- Location / Place: Not specified yet'}
+${userWork ? `- Work / Occupation: ${userWork}` : '- Work / Occupation: Not specified yet'}
+${userInterests ? `- Interests: ${userInterests}` : '- Interests: Not specified yet'}
 
-Private Memories saved for ${profile.full_name}:
-${memoryList}
-
-CRITICAL OWNER MEMORY RULES:
-1. Tia KNOWS with complete certainty that ${profile.full_name} is her owner. Never ask him/her "Who are you?" or ask for their name.
-2. When ${profile.full_name} asks questions about themselves in Hindi, Hinglish, or English, ALWAYS answer accurately and naturally using their private profile:
-   - "What is my name?" / "Mera naam kya hai?" -> "Aapka naam ${profile.full_name} hai boss! Mere favorite creator, bhoolun bhi kaise? 😉"
-   - "Where do I live?" / "Main kahan rehta hoon?" -> "Aap ${profile.location || profile.address || 'India'} mein rehte ho boss."
-   - "How old am I?" / "Meri umar kya hai?" -> "Aap ${profile.age} saal ke ho boss."
-   - "What do you know about me?" / "Mere baare mein kya jaanti ho?" -> Summarize ${profile.full_name}'s name, age (${profile.age}), location (${profile.location || profile.address || 'India'}), work (${profile.current_work || profile.occupation_status || 'your projects'}), and personal memories warmly.
-3. Explicit Memory Updates:
-   - If ${profile.full_name} says "Remember that [fact]" / "Save this: [fact]" / "Yaad rakhna ki [fact]":
-     * Acknowledge warmly that you've saved it ("Done boss! Maine yaad rakh liya...", "Bilkul boss!").
-     * Fill in the "memoryAction" with action: "remember", fact: "[fact]".
-   - If ${profile.full_name} says "Forget that [topic]" / "Remove that memory [topic]":
-     * Acknowledge that you forgot it ("Okay boss, wo memory delete kar di!").
-     * Fill in "memoryAction" with action: "forget", fact: "[topic]".
-   - If ${profile.full_name} says "Update my location to [loc]" or "Update my work to [work]":
-     * Acknowledge that you updated their profile.
-     * Fill in "memoryAction" with action: "update_field", field: "location" | "occupation_status", value: "[new value]".
+CRITICAL USER PROFILE RULES:
+1. Tia KNOWS with complete certainty that the user is ${userName}. Never ask them "Who are you?" or ask for their name. Always address them by "${userName}" or "boss".
+2. When ${userName} asks questions about themselves in Hindi, Hinglish, or English:
+   - "What is my name?" / "Mera naam kya hai?" -> "Aapka naam ${userName} hai boss!"
+   - "Where do I live?" / "Main kahan rehta hoon?" -> ${userPlace ? `"Aap ${userPlace} mein rehte ho boss!"` : `"Aapne abhi tak apna location nahi bataya boss! Profile settings mein add kar sakte ho."`}
+   - "What is my work?" / "Main kya karta hoon?" -> ${userWork ? `"Aap ${userWork} ho boss!"` : `"Aapne abhi apna work/occupation set nahi kiya boss!"`}
+   - "What do you know about me?" / "Mere baare mein kya jaanti ho?" -> Summarize their details warmly and accurately in Tia's witty style:
+     * Name: ${userName}
+     ${userPlace ? `* Place: ${userPlace}` : ''}
+     ${userWork ? `* Work / Occupation: ${userWork}` : ''}
+     ${userInterests ? `* Interests: ${userInterests}` : ''}
+   - Personalized suggestions (e.g. "Suggest something I can learn", "Mujhe kuch sikhna hai"):
+     * Directly personalize based on their work (${userWork || 'their current field'}) and interests (${userInterests || 'creative skills'}). For example, if they like Technology and Cricket, offer a creative idea combining sports data analytics, coding, or tech exploration!
 
 === SPOKEN VOICE DELIVERY ===
 - Voice-First conciseness: Keep answers concise (1 to 3 spoken sentences).
@@ -297,6 +295,14 @@ export async function handleChatRequest(req: IncomingMessage, res: ServerRespons
     const history: Array<{ role: 'user' | 'assistant'; content: string }> =
       Array.isArray(body.history) ? body.history : [];
     const preferredLanguage: string = body.preferredLanguage || 'auto';
+    const localProfile = body.localProfile;
+    const hasLocalProfile = !!(
+      localProfile &&
+      typeof localProfile === 'object' &&
+      localProfile.name &&
+      typeof localProfile.name === 'string' &&
+      localProfile.name.trim()
+    );
 
     if (!userMessage) {
       res.statusCode = 400;
@@ -305,20 +311,23 @@ export async function handleChatRequest(req: IncomingMessage, res: ServerRespons
       return;
     }
 
-    // Load only this user's private memories safely
+    // Load user's private memories safely only if not a local-only profile or if token exists
     let userMemories: any[] = [];
-    try {
-      userMemories = getUserMemories(userId);
-    } catch (memReadErr) {
-      console.warn('Could not read user memories:', memReadErr);
-      userMemories = [];
+    if (!hasLocalProfile || token) {
+      try {
+        userMemories = getUserMemories(userId);
+      } catch (memReadErr) {
+        console.warn('Could not read user memories:', memReadErr);
+        userMemories = [];
+      }
     }
 
-    // Build system instruction with this user's profile and isolated memories
+    // Build system instruction with profile and localProfile priority
     const systemInstruction = buildSystemInstruction(
       profile,
       userMemories,
-      preferredLanguage
+      preferredLanguage,
+      hasLocalProfile ? localProfile : null
     );
 
     const contents: any[] = [];
@@ -383,84 +392,84 @@ export async function handleChatRequest(req: IncomingMessage, res: ServerRespons
     const rawText = response.text.trim();
     const parsedData = parseAssistantResponse(rawText);
 
-    // Execute memory actions for this authenticated user safely
-    try {
-      if (parsedData.memoryAction && parsedData.memoryAction.action !== 'none') {
-        const { action, field, value, fact } = parsedData.memoryAction;
-        if (action === 'remember' && fact && fact.trim()) {
-          addUserMemory(userId, fact.trim(), 'user_requested');
-        } else if (action === 'forget' && fact && fact.trim()) {
-          forgetUserMemoryByQuery(userId, fact.trim());
-        } else if (action === 'update_field' && field && value !== undefined) {
-          if (field === 'location') {
-            updateUserProfile(userId, { address: String(value).trim() });
-          } else if (field === 'occupation_status') {
-            updateUserProfile(userId, { occupation_status: String(value).trim() });
-          } else if (field === 'full_name') {
-            updateUserProfile(userId, { full_name: String(value).trim() });
+    // Execute memory actions only for authenticated token users to avoid mutating server DB for local profiles
+    if (token) {
+      try {
+        if (parsedData.memoryAction && parsedData.memoryAction.action !== 'none') {
+          const { action, field, value, fact } = parsedData.memoryAction;
+          if (action === 'remember' && fact && fact.trim()) {
+            addUserMemory(userId, fact.trim(), 'user_requested');
+          } else if (action === 'forget' && fact && fact.trim()) {
+            forgetUserMemoryByQuery(userId, fact.trim());
+          } else if (action === 'update_field' && field && value !== undefined) {
+            if (field === 'location') {
+              updateUserProfile(userId, { address: String(value).trim() });
+            } else if (field === 'occupation_status') {
+              updateUserProfile(userId, { occupation_status: String(value).trim() });
+            } else if (field === 'full_name') {
+              updateUserProfile(userId, { full_name: String(value).trim() });
+            }
           }
         }
-      }
 
-      // Fallback explicit regex checks for memory commands
-      const explicitRememberMatch = userMessage.match(
-        /(?:please\s+)?(?:remember\s+that|save\s+this[:\s]+|yaad\s+rakhna\s+(?:ki)?|note\s+down\s+that|note\s+that)\s+(.+)/i
-      );
-      if (explicitRememberMatch && explicitRememberMatch[1]) {
-        const factText = explicitRememberMatch[1].trim().replace(/[.!?]+$/, '');
-        if (factText.length > 2) {
-          addUserMemory(userId, factText, 'user_requested');
+        // Fallback explicit regex checks for memory commands
+        const explicitRememberMatch = userMessage.match(
+          /(?:please\s+)?(?:remember\s+that|save\s+this[:\s]+|yaad\s+rakhna\s+(?:ki)?|note\s+down\s+that|note\s+that)\s+(.+)/i
+        );
+        if (explicitRememberMatch && explicitRememberMatch[1]) {
+          const factText = explicitRememberMatch[1].trim().replace(/[.!?]+$/, '');
+          if (factText.length > 2) {
+            addUserMemory(userId, factText, 'user_requested');
+          }
         }
-      }
 
-      const explicitForgetMatch = userMessage.match(
-        /(?:forget\s+that|remove\s+that\s+memory|delete\s+that\s+memory|bhool\s+jao\s+(?:ki)?)\s+(.+)/i
-      );
-      if (explicitForgetMatch && explicitForgetMatch[1]) {
-        const queryText = explicitForgetMatch[1].trim().replace(/[.!?]+$/, '');
-        if (queryText.length > 1) {
-          forgetUserMemoryByQuery(userId, queryText);
+        const explicitForgetMatch = userMessage.match(
+          /(?:forget\s+that|remove\s+that\s+memory|delete\s+that\s+memory|bhool\s+jao\s+(?:ki)?)\s+(.+)/i
+        );
+        if (explicitForgetMatch && explicitForgetMatch[1]) {
+          const queryText = explicitForgetMatch[1].trim().replace(/[.!?]+$/, '');
+          if (queryText.length > 1) {
+            forgetUserMemoryByQuery(userId, queryText);
+          }
         }
+      } catch (memErr) {
+        console.warn('Memory action skipped or persistence unavailable:', memErr);
       }
-    } catch (memErr) {
-      console.warn('Memory action skipped or persistence unavailable:', memErr);
-    }
 
-    // Refresh updated user profile and memories safely
-    let updatedProfile = profile;
-    let updatedMemories: any[] = [];
-    try {
-      updatedProfile = getUserProfile(userId) || profile;
-      updatedMemories = getUserMemories(userId);
-    } catch (pErr) {
-      console.warn('Could not refresh profile/memories (using cached):', pErr);
-    }
+      // Refresh updated user profile and memories safely
+      try {
+        profile = getUserProfile(userId) || profile;
+        userMemories = getUserMemories(userId);
+      } catch (pErr) {
+        console.warn('Could not refresh profile/memories (using cached):', pErr);
+      }
 
-    // Save updated conversation for this user
-    try {
-      const existingConv = getUserConversation(userId);
-      const existingMessages = existingConv ? existingConv.messages : [];
-      const newMessages = [
-        ...existingMessages,
-        {
-          id: `usr-${Date.now()}`,
-          role: 'user' as const,
-          content: userMessage,
-          timestamp: Date.now(),
-        },
-        {
-          id: `tia-${Date.now() + 1}`,
-          role: 'assistant' as const,
-          content: parsedData.reply,
-          timestamp: Date.now() + 1,
-          emotion: parsedData.emotion,
-          detectedLanguage: parsedData.detectedLanguage,
-        },
-      ];
-      // Keep recent 50 messages
-      saveUserConversation(userId, newMessages.slice(-50));
-    } catch (convErr) {
-      console.warn('Failed to save conversation history (gracefully ignored):', convErr);
+      // Save updated conversation for this user
+      try {
+        const existingConv = getUserConversation(userId);
+        const existingMessages = existingConv ? existingConv.messages : [];
+        const newMessages = [
+          ...existingMessages,
+          {
+            id: `usr-${Date.now()}`,
+            role: 'user' as const,
+            content: userMessage,
+            timestamp: Date.now(),
+          },
+          {
+            id: `tia-${Date.now() + 1}`,
+            role: 'assistant' as const,
+            content: parsedData.reply,
+            timestamp: Date.now() + 1,
+            emotion: parsedData.emotion,
+            detectedLanguage: parsedData.detectedLanguage,
+          },
+        ];
+        // Keep recent 50 messages
+        saveUserConversation(userId, newMessages.slice(-50));
+      } catch (convErr) {
+        console.warn('Failed to save conversation history (gracefully ignored):', convErr);
+      }
     }
 
     res.statusCode = 200;
@@ -473,8 +482,9 @@ export async function handleChatRequest(req: IncomingMessage, res: ServerRespons
         contextType: parsedData.contextType,
         suggestedVoiceGender: parsedData.suggestedVoiceGender,
         model: successfulModel,
-        userProfile: updatedProfile,
-        memories: updatedMemories,
+        ...(hasLocalProfile
+          ? { localProfile }
+          : { userProfile: profile, memories: userMemories }),
       })
     );
   } catch (err: any) {

@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import type { TiaSettings, SpeechVoiceOption, OwnerProfile, UserProfile } from '../types';
+import React, { useState, useEffect } from 'react';
+import type { TiaSettings, SpeechVoiceOption, OwnerProfile, UserProfile, TiaLocalProfile } from '../types';
 import {
   X,
   Volume2,
@@ -25,6 +25,7 @@ import {
   Mail,
   Phone,
   ShieldCheck,
+  Heart,
 } from 'lucide-react';
 
 interface SettingsModalProps {
@@ -36,6 +37,9 @@ interface SettingsModalProps {
   availableVoices: SpeechVoiceOption[];
   onTestVoice: () => void;
   isDark: boolean;
+  localProfile: TiaLocalProfile | null;
+  onUpdateLocalProfile: (profile: TiaLocalProfile) => void;
+  onResetLocalProfile: () => void;
   ownerProfile?: OwnerProfile | null;
   userProfile?: UserProfile | null;
   onUpdateOwnerProfile?: (updater: Partial<OwnerProfile>) => void;
@@ -54,6 +58,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   availableVoices,
   onTestVoice,
   isDark,
+  localProfile,
+  onUpdateLocalProfile,
+  onResetLocalProfile,
   ownerProfile,
   userProfile,
   onUpdateOwnerProfile,
@@ -66,8 +73,20 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [clearedConfirm, setClearedConfirm] = useState(false);
   const [newMemoryInput, setNewMemoryInput] = useState('');
   const [isEditingProfile, setIsEditingProfile] = useState(false);
-  const [editLocation, setEditLocation] = useState(userProfile?.address || ownerProfile?.location || 'Patna, India');
-  const [editWork, setEditWork] = useState(userProfile?.occupation_status || ownerProfile?.occupation_status || 'working on a startup');
+  const [editName, setEditName] = useState(localProfile?.name || '');
+  const [editPlace, setEditPlace] = useState(localProfile?.place || '');
+  const [editWork, setEditWork] = useState(localProfile?.work || '');
+  const [editInterests, setEditInterests] = useState(localProfile?.interests || '');
+  const [editError, setEditError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (localProfile) {
+      setEditName(localProfile.name || '');
+      setEditPlace(localProfile.place || '');
+      setEditWork(localProfile.work || '');
+      setEditInterests(localProfile.interests || '');
+    }
+  }, [localProfile, isEditingProfile]);
 
   if (!isOpen) return null;
 
@@ -78,13 +97,30 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   };
 
   const handleSaveProfileEdit = () => {
-    if (onUpdateOwnerProfile) {
-      onUpdateOwnerProfile({
-        location: editLocation.trim() || 'Patna, India',
-        occupation_status: editWork.trim() || 'working on a startup',
-      });
+    const trimmed = editName.trim();
+    if (!trimmed) {
+      setEditError('Name is required');
+      return;
     }
+    onUpdateLocalProfile({
+      name: trimmed,
+      place: editPlace.trim() || undefined,
+      work: editWork.trim() || undefined,
+      interests: editInterests.trim() || undefined,
+    });
     setIsEditingProfile(false);
+    setEditError(null);
+  };
+
+  const handleResetLocalProfile = () => {
+    if (
+      window.confirm(
+        'Reset your profile? This will clear your personal profile from this device and return you to the setup screen.'
+      )
+    ) {
+      onResetLocalProfile();
+      onClose();
+    }
   };
 
   const handleAddNewMemory = (e: React.FormEvent) => {
@@ -132,9 +168,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
         {/* Modal Content */}
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-6 text-sm">
-          {/* OWNER PROFILE & PERSISTENT MEMORY SECTION */}
+          {/* PERSONAL USER PROFILE SECTION (LOCAL DEVICE STORAGE) */}
           <div
-            id="owner-profile-memory-card"
+            id="personal-profile-card"
             className={`p-4 rounded-2xl border space-y-3.5 transition-all ${
               isDark
                 ? 'bg-rose-950/20 border-rose-500/25 text-slate-200'
@@ -149,13 +185,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </div>
                 <div>
                   <h3 className="font-bold text-sm leading-tight flex items-center space-x-1.5">
-                    <span>Owner Profile & Memory</span>
+                    <span>Personal Profile</span>
                     <span className="text-[10px] uppercase font-semibold px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-400 border border-rose-500/30">
-                      Persistent DB
+                      This Device • Local
                     </span>
                   </h3>
                   <p className="text-[11px] text-slate-400">
-                    Stored across sessions. Tia recognizes {userProfile?.full_name?.split(' ')[0] || ownerProfile?.name || 'you'} as her owner.
+                    Stored on this device. Tia recognizes you as {localProfile?.name || 'Friend'}.
                   </p>
                 </div>
               </div>
@@ -163,8 +199,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 type="button"
                 id="btn-edit-owner-profile"
                 onClick={() => {
-                  setEditLocation(userProfile?.address || ownerProfile?.location || '');
-                  setEditWork(userProfile?.occupation_status || ownerProfile?.occupation_status || '');
+                  setEditName(localProfile?.name || '');
+                  setEditPlace(localProfile?.place || '');
+                  setEditWork(localProfile?.work || '');
+                  setEditInterests(localProfile?.interests || '');
+                  setEditError(null);
                   setIsEditingProfile(!isEditingProfile);
                 }}
                 className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
@@ -174,29 +213,52 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               </button>
             </div>
 
-            {/* Profile Fields */}
+            {/* Profile Fields or Edit Form */}
             {isEditingProfile ? (
               <div className="space-y-2.5 pt-1">
+                {editError && (
+                  <p className="text-xs text-rose-400 font-medium">{editError}</p>
+                )}
                 <div>
                   <label className="text-[11px] font-semibold text-slate-400 block mb-1">
-                    Location / Address:
+                    Name <span className="text-rose-400">*</span>:
                   </label>
                   <input
                     type="text"
-                    id="input-edit-location"
-                    value={editLocation}
-                    onChange={(e) => setEditLocation(e.target.value)}
+                    id="input-edit-name"
+                    value={editName}
+                    onChange={(e) => {
+                      setEditName(e.target.value);
+                      if (editError) setEditError(null);
+                    }}
                     className={`w-full px-3 py-1.5 rounded-xl text-xs border outline-none ${
                       isDark
                         ? 'bg-slate-900 border-white/10 text-white'
                         : 'bg-white border-slate-300 text-slate-900'
                     }`}
-                    placeholder="e.g. Patna, India"
+                    placeholder="e.g. Rahul"
                   />
                 </div>
                 <div>
                   <label className="text-[11px] font-semibold text-slate-400 block mb-1">
-                    Current Work / Occupation:
+                    Place / City (Optional):
+                  </label>
+                  <input
+                    type="text"
+                    id="input-edit-location"
+                    value={editPlace}
+                    onChange={(e) => setEditPlace(e.target.value)}
+                    className={`w-full px-3 py-1.5 rounded-xl text-xs border outline-none ${
+                      isDark
+                        ? 'bg-slate-900 border-white/10 text-white'
+                        : 'bg-white border-slate-300 text-slate-900'
+                    }`}
+                    placeholder="e.g. Patna"
+                  />
+                </div>
+                <div>
+                  <label className="text-[11px] font-semibold text-slate-400 block mb-1">
+                    Work / Occupation (Optional):
                   </label>
                   <input
                     type="text"
@@ -208,97 +270,138 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         ? 'bg-slate-900 border-white/10 text-white'
                         : 'bg-white border-slate-300 text-slate-900'
                     }`}
-                    placeholder="e.g. working on a startup"
+                    placeholder="e.g. Student"
                   />
                 </div>
-                <div className="flex justify-end space-x-2 pt-1">
+                <div>
+                  <label className="text-[11px] font-semibold text-slate-400 block mb-1">
+                    Interests (Optional):
+                  </label>
+                  <input
+                    type="text"
+                    id="input-edit-interests"
+                    value={editInterests}
+                    onChange={(e) => setEditInterests(e.target.value)}
+                    className={`w-full px-3 py-1.5 rounded-xl text-xs border outline-none ${
+                      isDark
+                        ? 'bg-slate-900 border-white/10 text-white'
+                        : 'bg-white border-slate-300 text-slate-900'
+                    }`}
+                    placeholder="e.g. Technology, Cricket"
+                  />
+                </div>
+                <div className="flex justify-between items-center pt-1">
                   <button
                     type="button"
-                    onClick={() => setIsEditingProfile(false)}
-                    className="px-3 py-1 rounded-lg text-xs font-semibold text-slate-400 hover:bg-white/5 cursor-pointer"
+                    onClick={handleResetLocalProfile}
+                    className="text-xs text-rose-400 hover:text-rose-300 flex items-center space-x-1 cursor-pointer"
                   >
-                    Cancel
+                    <RotateCcw className="w-3 h-3" />
+                    <span>Reset Profile</span>
                   </button>
-                  <button
-                    type="button"
-                    id="btn-save-profile-edit"
-                    onClick={handleSaveProfileEdit}
-                    className="px-3 py-1 rounded-lg text-xs font-semibold bg-rose-500 hover:bg-rose-600 text-white cursor-pointer"
-                  >
-                    Save Changes
-                  </button>
+                  <div className="flex space-x-2">
+                    <button
+                      type="button"
+                      onClick={() => setIsEditingProfile(false)}
+                      className="px-3 py-1 rounded-lg text-xs font-semibold text-slate-400 hover:bg-white/5 cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      id="btn-save-profile-edit"
+                      onClick={handleSaveProfileEdit}
+                      disabled={!editName.trim()}
+                      className="px-3 py-1 rounded-lg text-xs font-semibold bg-rose-500 hover:bg-rose-600 disabled:opacity-50 text-white cursor-pointer"
+                    >
+                      Save Changes
+                    </button>
+                  </div>
                 </div>
               </div>
             ) : (
-              <div className="grid grid-cols-2 gap-2 text-xs pt-1">
-                <div className="p-2.5 rounded-xl bg-black/20 border border-white/5 space-y-0.5">
-                  <span className="text-[10px] text-slate-400 uppercase font-semibold tracking-wider">
-                    Full Name
-                  </span>
-                  <div className="font-semibold flex items-center space-x-1.5 truncate">
-                    <span>{userProfile?.full_name || ownerProfile?.name || 'Owner'}</span>
-                    <span className="text-[9px] px-1.5 py-0.2 bg-rose-500/20 text-rose-300 rounded font-medium">
-                      Owner
+              <div className="space-y-2.5 pt-1">
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div className="p-2.5 rounded-xl bg-black/20 border border-white/5 space-y-0.5">
+                    <span className="text-[10px] text-slate-400 uppercase font-semibold tracking-wider">
+                      Name
                     </span>
+                    <div className="font-semibold flex items-center space-x-1.5 truncate text-white">
+                      <span>{localProfile?.name || 'Friend'}</span>
+                    </div>
                   </div>
-                </div>
 
-                <div className="p-2.5 rounded-xl bg-black/20 border border-white/5 space-y-0.5">
-                  <span className="text-[10px] text-slate-400 uppercase font-semibold tracking-wider">
-                    Username
-                  </span>
-                  <div className="font-semibold text-rose-400 truncate">
-                    @{userProfile?.username || 'user'}
-                  </div>
-                </div>
-
-                <div className="p-2.5 rounded-xl bg-black/20 border border-white/5 space-y-0.5">
-                  <span className="text-[10px] text-slate-400 uppercase font-semibold tracking-wider flex items-center space-x-1">
-                    <Calendar className="w-2.5 h-2.5 text-rose-400" />
-                    <span>Age & DOB</span>
-                  </span>
-                  <div className="font-semibold truncate">
-                    {userProfile?.age ? `${userProfile.age} yrs` : '24 yrs'}
-                    <span className="text-[10px] text-slate-400 ml-1">
-                      ({userProfile?.date_of_birth || '2000-01-01'})
+                  <div className="p-2.5 rounded-xl bg-black/20 border border-white/5 space-y-0.5">
+                    <span className="text-[10px] text-slate-400 uppercase font-semibold tracking-wider flex items-center space-x-1">
+                      <MapPin className="w-2.5 h-2.5 text-rose-400" />
+                      <span>Place</span>
                     </span>
+                    <div className="font-semibold truncate text-slate-300">
+                      {localProfile?.place || 'Not specified'}
+                    </div>
+                  </div>
+
+                  <div className="p-2.5 rounded-xl bg-black/20 border border-white/5 space-y-0.5">
+                    <span className="text-[10px] text-slate-400 uppercase font-semibold tracking-wider flex items-center space-x-1">
+                      <Briefcase className="w-2.5 h-2.5 text-violet-400" />
+                      <span>Work / Occupation</span>
+                    </span>
+                    <div className="font-semibold truncate text-slate-300">
+                      {localProfile?.work || 'Not specified'}
+                    </div>
+                  </div>
+
+                  <div className="p-2.5 rounded-xl bg-black/20 border border-white/5 space-y-0.5">
+                    <span className="text-[10px] text-slate-400 uppercase font-semibold tracking-wider flex items-center space-x-1">
+                      <Heart className="w-2.5 h-2.5 text-pink-400" />
+                      <span>Interests</span>
+                    </span>
+                    <div className="font-semibold truncate text-slate-300">
+                      {localProfile?.interests || 'Not specified'}
+                    </div>
                   </div>
                 </div>
 
-                <div className="p-2.5 rounded-xl bg-black/20 border border-white/5 space-y-0.5">
-                  <span className="text-[10px] text-slate-400 uppercase font-semibold tracking-wider flex items-center space-x-1">
-                    <MapPin className="w-2.5 h-2.5 text-rose-400" />
-                    <span>Location / City</span>
-                  </span>
-                  <div className="font-semibold truncate">
-                    {userProfile?.location || userProfile?.address || ownerProfile?.location || 'India'}
-                  </div>
-                </div>
-
-                <div className="p-2.5 rounded-xl bg-black/20 border border-white/5 col-span-2 space-y-0.5">
-                  <span className="text-[10px] text-slate-400 uppercase font-semibold tracking-wider flex items-center space-x-1">
-                    <Briefcase className="w-2.5 h-2.5 text-rose-400" />
-                    <span>Current Work / Role</span>
-                  </span>
-                  <div className="font-semibold truncate">
-                    {userProfile?.current_work || userProfile?.occupation_status || ownerProfile?.occupation_status || 'Working on goals'}
-                  </div>
+                <div className="flex items-center justify-between pt-1">
+                  <button
+                    type="button"
+                    id="btn-reset-profile"
+                    onClick={handleResetLocalProfile}
+                    className="text-[11px] text-slate-400 hover:text-rose-400 flex items-center space-x-1 cursor-pointer transition-colors"
+                  >
+                    <RotateCcw className="w-3 h-3" />
+                    <span>Reset Profile</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditName(localProfile?.name || '');
+                      setEditPlace(localProfile?.place || '');
+                      setEditWork(localProfile?.work || '');
+                      setEditInterests(localProfile?.interests || '');
+                      setIsEditingProfile(true);
+                    }}
+                    className="text-[11px] text-rose-400 hover:text-rose-300 font-semibold flex items-center space-x-1 cursor-pointer"
+                  >
+                    <Edit2 className="w-3 h-3" />
+                    <span>Edit Profile</span>
+                  </button>
                 </div>
               </div>
             )}
 
             {/* Quick Test Voice Queries */}
-            <div className="space-y-1.5 pt-1">
+            <div className="space-y-1.5 pt-1 border-t border-white/10">
               <span className="text-[11px] font-semibold text-rose-400 flex items-center space-x-1">
                 <MessageSquare className="w-3 h-3" />
-                <span>Test Tia's Memory Recall:</span>
+                <span>Test Profile Context:</span>
               </span>
               <div className="grid grid-cols-2 gap-1.5">
                 {[
                   'What is my name?',
                   'Where do I live?',
-                  'How old am I?',
-                  'Mere baare mein kya jaanti ho?',
+                  'What do you know about me?',
+                  'Suggest something I can learn',
                 ].map((prompt) => (
                   <button
                     key={prompt}
@@ -316,13 +419,20 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 ))}
               </div>
             </div>
+          </div>
 
-            {/* Saved Facts & Memories */}
-            <div className="space-y-2 pt-2 border-t border-white/10">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold text-slate-300 flex items-center space-x-1">
-                  <span>Remembered Facts ({ownerProfile?.additional_memories?.length || 0})</span>
-                </span>
+          {/* Saved Facts & Memories */}
+          <div
+            className={`p-4 rounded-2xl border space-y-2 transition-all ${
+              isDark
+                ? 'bg-slate-800/40 border-white/10 text-slate-200'
+                : 'bg-white border-slate-200 text-slate-800'
+            }`}
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold flex items-center space-x-1">
+                <span>Remembered Facts ({ownerProfile?.additional_memories?.length || 0})</span>
+              </span>
                 {onResetProfile && (
                   <button
                     type="button"
@@ -397,7 +507,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </button>
               </form>
             </div>
-          </div>
 
           {/* 1. Hands-Free "Hey Tia" Wake Word Toggle */}
           <div className="flex items-center justify-between p-3 rounded-2xl bg-rose-500/10 border border-rose-500/20">

@@ -1,12 +1,13 @@
 import React from 'react';
 import { Volume2, VolumeX, Moon, Sun, Settings, Sparkles, UserCheck, Languages } from 'lucide-react';
-import type { TiaSettings, OwnerProfile } from '../types';
+import type { TiaSettings, OwnerProfile, TiaLocalProfile } from '../types';
 
 interface HeaderProps {
   settings: TiaSettings;
   onUpdateSettings: (updater: Partial<TiaSettings>) => void;
   onOpenSettings: () => void;
   isDark: boolean;
+  localProfile?: TiaLocalProfile | null;
   ownerProfile?: OwnerProfile | null;
 }
 
@@ -15,8 +16,11 @@ export const Header: React.FC<HeaderProps> = ({
   onUpdateSettings,
   onOpenSettings,
   isDark,
+  localProfile,
   ownerProfile,
 }) => {
+  const displayName = localProfile?.name || ownerProfile?.name || 'Profile';
+
   return (
     <header
       id="app-header"
@@ -63,12 +67,12 @@ export const Header: React.FC<HeaderProps> = ({
               <span>{settings.handsFreeMode ? 'Hey Tia' : 'Manual Mic'}</span>
             </button>
 
-            {/* Owner Profile Badge */}
+            {/* Profile Badge */}
             <button
               type="button"
               id="btn-header-owner-badge"
               onClick={onOpenSettings}
-              title={`Owner: ${ownerProfile?.name || 'Owner'} (${ownerProfile?.location || 'India'}) - Click to view Profile & Memory`}
+              title={`Profile: ${displayName} - Click to view or edit profile`}
               className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border flex items-center space-x-1 cursor-pointer transition-all ${
                 isDark
                   ? 'bg-rose-500/15 text-rose-300 border-rose-500/30 hover:bg-rose-500/25'
@@ -76,7 +80,7 @@ export const Header: React.FC<HeaderProps> = ({
               }`}
             >
               <UserCheck className="w-3 h-3 text-rose-400" />
-              <span>{ownerProfile?.name || 'Owner'}</span>
+              <span>{displayName}</span>
             </button>
           </div>
           <div className="flex items-center space-x-1.5 mt-0.5">
