@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'http';
-import { GoogleGenAI } from '@google/genai';
+import { FunctionDeclaration, GoogleGenAI, Type } from '@google/genai';
 import {
   getUserByToken,
   getUserMemories,
@@ -11,6 +11,60 @@ import {
   getUserConversation,
 } from './db.ts';
 import { extractAuthToken } from './authHandler.ts';
+import { getLiveWeather, sanitizeLocationQuery } from './weatherService.ts';
+
+// Gemini Function Declaration for Live Weather Retrieval
+const liveWeatherDeclaration: FunctionDeclaration = {
+  name: 'getLiveWeather',
+  description:
+    'Retrieve verified real-time live weather metrics (temperature, feels-like temperature, weather condition, humidity, wind speed, precipitation, and rain information) for a specific city or location. Call this whenever the user asks about the current weather, temperature, rain/baarish, humidity, or atmospheric conditions in a city or place.',
+  parameters: {
+    type: Type.OBJECT,
+    properties: {
+      location: {
+        type: Type.STRING,
+        description:
+          'The city or location name to check weather for, e.g., "Patna", "Delhi", "Mumbai", "Bangalore", "London". If the user did not specify a city, pass an empty string or the user profile city.',
+      },
+    },
+    required: ['location'],
+  },
+};
+
+/**
+ * Helper to detect weather inquiries from natural language
+ */
+function detectWeatherInquiry(message: string): { isWeather: boolean; locationHint: string } {
+  const text = (message || '').trim().toLowerCase();
+  const weatherRegex =
+    /\b(weather|mausam|temperature|temp|baarish|barish|rain|raining|rainy|humidity|forecast|hawa|wind|dhoop|chhatri|chata|garmi|sardi|thand|climate)\b/i;
+
+  if (!weatherRegex.test(text)) {
+    return { isWeather: false, locationHint: '' };
+  }
+
+  const patterns = [
+    /(?:weather|mausam|temperature|temp|baarish|barish|rain|raining)\s+(?:in|of|at|for|around)\s+([a-zA-Z\s]+?)(?:\s+(?:today|now|right now|currently|aaj|kaisa|batao|hai))?$/i,
+    /(?:in|at|for)\s+([a-zA-Z\s]+?)\s+(?:weather|mausam|temperature|temp|baarish|barish|rain|raining)/i,
+    /([a-zA-Z\s]+?)\s+(?:ka|ki|ke|me|mein|se)\s+(?:weather|mausam|temperature|temp|baarish|barish|rain)/i,
+    /(?:is it raining in|raining in)\s+([a-zA-Z\s]+)/i,
+    /(?:how hot is it in|how cold is it in)\s+([a-zA-Z\s]+)/i,
+  ];
+
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (match && match[1]) {
+      const candidate = match[1]
+        .replace(/\b(today|aaj|now|right now|kaisa|hai|batao|please|tell me|what is|whats the|the)\b/gi, '')
+        .trim();
+      if (candidate.length >= 2) {
+        return { isWeather: true, locationHint: sanitizeLocationQuery(candidate) };
+      }
+    }
+  }
+
+  return { isWeather: true, locationHint: '' };
+}
 
 let aiClient: GoogleGenAI | null = null;
 
@@ -182,6 +236,15 @@ CRITICAL USER PROFILE RULES:
    - Personalized suggestions (e.g. "Suggest something I can learn", "Mujhe kuch sikhna hai"):
      * Directly personalize based on their work (${userWork || 'their current field'}) and interests (${userInterests || 'creative skills'}). For example, if they like Technology and Cricket, offer a creative idea combining sports data analytics, coding, or tech exploration!
 
+=== LIVE WEATHER INFORMATION TOOL ===
+When ${userName} asks for current live weather, temperature, heat/cold, rain/baarish, humidity, or atmospheric conditions:
+- Call the "getLiveWeather" tool to retrieve verified live data. Never estimate, guess, or invent weather data from general knowledge.
+- If live weather tool data is retrieved:
+  * Formulate a natural, witty, spoken Tia response including the current temperature, feels-like temperature, weather condition (e.g. clear sky, cloudy, rainy, drizzle), humidity, and rain/precipitation status when relevant.
+  * Answer directly in the requested language style (Hindi, Hinglish, or English).
+- If the user did not specify a city, check their profile location (${userPlace || 'none'}). If no location is known at all, ask: "Which city's weather should I check?" (or "Aapko kis city ka weather check karna hai boss?").
+- If the live weather service reports that data is temporarily unavailable or city not found, be honest: tell ${userName} that live weather information is temporarily unavailable right now, rather than inventing numbers.
+
 === SPOKEN VOICE DELIVERY ===
 - Voice-First conciseness: Keep answers concise (1 to 3 spoken sentences).
 - Do NOT output markdown symbols (**bold**, hashtags #, bullets -, backticks).
@@ -322,6 +385,8 @@ export async function handleChatRequest(req: IncomingMessage, res: ServerRespons
       }
     }
 
+    const userPlace = (hasLocalProfile ? String(localProfile!.place || '') : (profile.location || profile.address || '')).trim();
+
     // Build system instruction with profile and localProfile priority
     const systemInstruction = buildSystemInstruction(
       profile,
@@ -348,29 +413,134 @@ export async function handleChatRequest(req: IncomingMessage, res: ServerRespons
     const ai = getAi();
     const candidateModels = [
       'gemini-3.1-flash-lite',
-      'gemini-2.5-flash',
-      'gemini-2.5-flash-lite',
+      'gemini-3.8-flash',
+      'gemini-flash-latest',
     ];
 
+    const weatherInquiry = detectWeatherInquiry(userMessage);
     let response: any = null;
     let successfulModel = 'gemini-3.1-flash-lite';
     let lastError: any = null;
 
     for (const modelName of candidateModels) {
       try {
-        response = await ai.models.generateContent({
+        // Step 1: Call Gemini with Live Weather tool declaration
+        const firstResponse = await ai.models.generateContent({
           model: modelName,
           contents,
           config: {
             systemInstruction,
+            tools: [{ functionDeclarations: [liveWeatherDeclaration] }],
             temperature: 0.82,
-            maxOutputTokens: 300,
-            responseMimeType: 'application/json',
+            maxOutputTokens: 350,
           },
         });
-        if (response && response.text) {
-          successfulModel = modelName;
-          break;
+
+        // Check if Gemini invoked getLiveWeather
+        const functionCall = firstResponse.functionCalls?.find(
+          (c) => c.name === 'getLiveWeather'
+        );
+
+        if (functionCall) {
+          let reqLocation = ((functionCall.args as any)?.location || '').trim();
+          if (!reqLocation || /^(here|current\s*location|my\s*city|my\s*location)$/i.test(reqLocation)) {
+            reqLocation = userPlace;
+          }
+
+          let weatherResult: any;
+          if (!reqLocation) {
+            weatherResult = {
+              success: false,
+              error: 'no_location_provided',
+              message: "Which city's weather should I check?",
+            };
+          } else {
+            weatherResult = await getLiveWeather(reqLocation);
+          }
+
+          const toolContents = [
+            ...contents,
+            firstResponse.candidates?.[0]?.content,
+            {
+              role: 'tool',
+              parts: [
+                {
+                  functionResponse: {
+                    name: 'getLiveWeather',
+                    response: weatherResult,
+                  },
+                },
+              ],
+            },
+          ];
+
+          const secondResponse = await ai.models.generateContent({
+            model: modelName,
+            contents: toolContents,
+            config: {
+              systemInstruction,
+              temperature: 0.82,
+              maxOutputTokens: 350,
+              responseMimeType: 'application/json',
+            },
+          });
+
+          if (secondResponse && secondResponse.text) {
+            response = secondResponse;
+            successfulModel = modelName;
+            break;
+          }
+        } else if (weatherInquiry.isWeather) {
+          // Model did not trigger functionCall directly, but message has explicit weather intent
+          let targetCity = weatherInquiry.locationHint || userPlace;
+          let weatherResult: any;
+          if (!targetCity) {
+            weatherResult = {
+              success: false,
+              error: 'no_location_provided',
+              message: "Which city's weather should I check?",
+            };
+          } else {
+            weatherResult = await getLiveWeather(targetCity);
+          }
+
+          const toolContents = [
+            ...contents,
+            {
+              role: 'user',
+              parts: [
+                {
+                  text: `[LIVE WEATHER TOOL DATA]: ${JSON.stringify(
+                    weatherResult
+                  )}\nFormulate a natural, witty spoken Tia response using these live verified metrics. If weather is unavailable or no city was given, answer accordingly without guessing numbers. Output strictly as valid JSON.`,
+                },
+              ],
+            },
+          ];
+
+          const secondResponse = await ai.models.generateContent({
+            model: modelName,
+            contents: toolContents,
+            config: {
+              systemInstruction,
+              temperature: 0.82,
+              maxOutputTokens: 350,
+              responseMimeType: 'application/json',
+            },
+          });
+
+          if (secondResponse && secondResponse.text) {
+            response = secondResponse;
+            successfulModel = modelName;
+            break;
+          }
+        } else {
+          // Standard non-weather query
+          if (firstResponse && firstResponse.text) {
+            response = firstResponse;
+            successfulModel = modelName;
+            break;
+          }
         }
       } catch (err: any) {
         lastError = err;
