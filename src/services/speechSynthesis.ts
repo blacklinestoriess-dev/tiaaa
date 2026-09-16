@@ -165,56 +165,102 @@ export function getEmotionVisualMeta(emotion: string = 'neutral'): EmotionVisual
 }
 
 /**
+ * TTS-only normalization layer for decimal numbers, units, and symbols.
+ * Converts e.g.:
+ * - 30.9 → "30 point 9"
+ * - 31.5 → "31 point 5"
+ * - 98.6 → "98 point 6"
+ * - 2.75 → "2 point 75"
+ * - -2.5 → "-2 point 5"
+ * - 30.9°C → "30 point 9 degrees Celsius"
+ *
+ * Rules:
+ * - Does NOT replace "." full stops in normal sentences (preserved for natural pauses)
+ * - Decimal numbers are matched with strict boundary protection so dates (e.g. 16.09.2026),
+ *   IP addresses, URLs, and email addresses are NOT broken.
+ * - Supports negative decimals (-2.5) and multiple decimal numbers in the same string.
+ * - This normalization is strictly applied to speech synthesis audio generation only;
+ *   the visual chat UI displays the original un-altered response.
+ */
+export function normalizeDecimalsForSpeech(text: string): string {
+  if (!text) return '';
+
+  let normalized = text
+    // Expand temperature symbols naturally for TTS engines
+    .replace(/℃/g, ' degrees Celsius')
+    .replace(/℉/g, ' degrees Fahrenheit')
+    .replace(/°\s*C\b/gi, ' degrees Celsius')
+    .replace(/°\s*F\b/gi, ' degrees Fahrenheit')
+    .replace(/°(?!\w)/g, ' degrees');
+
+  // Convert decimal numbers (with optional negative sign) to "point" notation for smooth speech flow.
+  // Lookbehind ensures not preceded by digit+dot, letters, or url/email characters.
+  // Lookahead ensures not followed by dot+digit (like in dates or version numbers) or letters.
+  normalized = normalized.replace(
+    /(?<!\d\.)(?<![a-zA-Z0-9_@\/-])(-?\d+)\.(\d+)(?!\.\d)(?![a-zA-Z0-9_@])/g,
+    '$1 point $2'
+  );
+
+  return normalized;
+}
+
+/**
  * Cleans and conditions text before sending it to speech synthesis.
  * Strips markdown symbols, URLs, and code blocks.
- * Expands common Indian abbreviations so speech synthesizers enunciate cleanly.
+ * Expands common Indian abbreviations, decimals, and units so speech synthesizers enunciate cleanly.
  */
 export function cleanTextForSpeech(text: string): string {
   if (!text) return '';
 
-  return (
-    text
-      // Remove code blocks
-      .replace(/```[\s\S]*?```/g, '')
-      // Remove inline code
-      .replace(/`([^`]+)`/g, '$1')
-      // Remove markdown links [text](url) -> text
-      .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
-      // Remove markdown bold/italic
-      .replace(/[*_~]{1,3}/g, '')
-      // Remove markdown headers
-      .replace(/^#{1,6}\s+/gm, '')
-      // Remove blockquotes and list markers
-      .replace(/^>\s+/gm, '')
-      .replace(/^[-*+]\s+/gm, '')
-      .replace(/^\d+\.\s+/gm, '')
-      // Currency expansion
-      .replace(/₹\s*(\d+)/g, '$1 rupees')
-      .replace(/Rs\.?\s*(\d+)/gi, '$1 rupees')
-      .replace(/%/g, ' percent')
-      .replace(/&/g, ' and ')
-      .replace(/\+/g, ' plus ')
-      .replace(/=/g, ' equals ')
-      // Expand common acronyms for crisp letter pronunciation in TTS
-      .replace(/\bGDP\b/g, 'G D P')
-      .replace(/\bUPI\b/g, 'U P I')
-      .replace(/\bRBI\b/g, 'R B I')
-      .replace(/\bIPL\b/g, 'I P L')
-      .replace(/\bAI\b/g, 'A I')
-      .replace(/\bIIT\b/g, 'I I T')
-      .replace(/\bIIM\b/g, 'I I M')
-      .replace(/\bGST\b/g, 'G S T')
-      .replace(/\bCEO\b/g, 'C E O')
-      .replace(/\bOTP\b/g, 'O T P')
-      // Strip emojis (standard Unicode emoji ranges)
-      .replace(
-        /([\u2700-\u27BF]|[\uE000-\uF8FF]|\uD83C[\uDC00-\uDFFF]|\uD83D[\uDC00-\uDFFF]|[\u2011-\u26FF]|\uD83E[\uDD10-\uDDFF])/g,
-        ''
-      )
-      // Normalize whitespace
-      .replace(/\s+/g, ' ')
-      .trim()
-  );
+  // 1. Initial cleanup of markdown blocks and list markers
+  let cleaned = text
+    // Remove code blocks
+    .replace(/```[\s\S]*?```/g, '')
+    // Remove inline code
+    .replace(/`([^`]+)`/g, '$1')
+    // Remove markdown links [text](url) -> text
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+    // Remove markdown bold/italic
+    .replace(/[*_~]{1,3}/g, '')
+    // Remove markdown headers
+    .replace(/^#{1,6}\s+/gm, '')
+    // Remove blockquotes and list markers
+    .replace(/^>\s+/gm, '')
+    .replace(/^[-*+]\s+/gm, '')
+    .replace(/^\d+\.\s+/gm, '');
+
+  // 2. TTS-only normalization for decimal numbers and temperature units
+  cleaned = normalizeDecimalsForSpeech(cleaned);
+
+  // 3. Currency and symbol expansions
+  cleaned = cleaned
+    .replace(/₹\s*(\d+(?:\s*point\s*\d+)?)/g, '$1 rupees')
+    .replace(/Rs\.?\s*(\d+(?:\s*point\s*\d+)?)/gi, '$1 rupees')
+    .replace(/%/g, ' percent')
+    .replace(/&/g, ' and ')
+    .replace(/\+/g, ' plus ')
+    .replace(/=/g, ' equals ')
+    // Expand common acronyms for crisp letter pronunciation in TTS
+    .replace(/\bGDP\b/g, 'G D P')
+    .replace(/\bUPI\b/g, 'U P I')
+    .replace(/\bRBI\b/g, 'R B I')
+    .replace(/\bIPL\b/g, 'I P L')
+    .replace(/\bAI\b/g, 'A I')
+    .replace(/\bIIT\b/g, 'I I T')
+    .replace(/\bIIM\b/g, 'I I M')
+    .replace(/\bGST\b/g, 'G S T')
+    .replace(/\bCEO\b/g, 'C E O')
+    .replace(/\bOTP\b/g, 'O T P')
+    // Strip emojis (standard Unicode emoji ranges)
+    .replace(
+      /([\u2700-\u27BF]|[\uE000-\uF8FF]|\uD83C[\uDC00-\uDFFF]|\uD83D[\uDC00-\uDFFF]|[\u2011-\u26FF]|\uD83E[\uDD10-\uDDFF])/g,
+      ''
+    )
+    // Normalize whitespace
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  return cleaned;
 }
 
 /**
