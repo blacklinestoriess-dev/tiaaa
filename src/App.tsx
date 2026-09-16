@@ -650,6 +650,7 @@ export default function App() {
           emotion: replyEmotion,
           voiceName: voiceLabel,
           detectedLanguage: detectedLang,
+          sources: Array.isArray(data.sources) ? data.sources : undefined,
         };
 
         setMessages((prev) => [...prev, tiaMsg]);

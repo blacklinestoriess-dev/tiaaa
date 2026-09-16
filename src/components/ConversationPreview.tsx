@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import type { Message, AssistantState } from '../types';
-import { Volume2, VolumeX, Copy, Check, Sparkles, User, History, X } from 'lucide-react';
+import { Volume2, VolumeX, Copy, Check, Sparkles, User, History, X, Globe, ExternalLink } from 'lucide-react';
 import { getEmotionVisualMeta } from '../services/speechSynthesis';
 
 interface ConversationPreviewProps {
@@ -198,6 +198,33 @@ export const ConversationPreview: React.FC<ConversationPreviewProps> = ({
               <p className="text-sm sm:text-base leading-relaxed font-normal whitespace-pre-line">
                 {lastMessage.content}
               </p>
+
+              {/* Verified Web Sources (if live search was used) */}
+              {lastMessage.sources && lastMessage.sources.length > 0 && (
+                <div className="pt-2 border-t border-white/10 flex flex-wrap items-center gap-1.5 mt-2">
+                  <span className="text-[10px] uppercase font-semibold tracking-wider text-slate-400 flex items-center gap-1 mr-0.5">
+                    <Globe className="w-3 h-3 text-sky-400" />
+                    Sources:
+                  </span>
+                  {lastMessage.sources.slice(0, 3).map((src, sIdx) => (
+                    <a
+                      key={sIdx}
+                      href={src.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className={`inline-flex items-center space-x-1 px-2 py-0.5 rounded-full text-[10px] font-medium transition-colors border ${
+                        isDark
+                          ? 'bg-slate-800/80 hover:bg-slate-700 text-sky-300 border-sky-500/25 hover:border-sky-400/40'
+                          : 'bg-sky-50 hover:bg-sky-100 text-sky-800 border-sky-200'
+                      }`}
+                      title={src.title}
+                    >
+                      <span className="truncate max-w-[140px]">{src.source || src.title}</span>
+                      <ExternalLink className="w-2.5 h-2.5 opacity-70 flex-shrink-0" />
+                    </a>
+                  ))}
+                </div>
+              )}
 
               {/* Spoken Voice Name info */}
               {lastMessage.voiceName && (

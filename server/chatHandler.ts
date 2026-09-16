@@ -13,6 +13,45 @@ import {
 import { extractAuthToken } from './authHandler.ts';
 import { getLiveWeather, sanitizeLocationQuery } from './weatherService.ts';
 
+export interface GroundingSource {
+  title: string;
+  url: string;
+}
+
+/**
+ * Extract web grounding citation sources returned by Gemini's native Google Search tool
+ */
+function extractGroundingSources(resp: any): GroundingSource[] {
+  const sources: GroundingSource[] = [];
+  const seenUrls = new Set<string>();
+
+  const candidate = resp?.candidates?.[0];
+  const chunks = candidate?.groundingMetadata?.groundingChunks;
+  if (Array.isArray(chunks)) {
+    for (const chunk of chunks) {
+      const uri = chunk?.web?.uri || chunk?.web?.url;
+      if (uri && typeof uri === 'string') {
+        const cleanUri = uri.trim();
+        if (cleanUri && !seenUrls.has(cleanUri)) {
+          seenUrls.add(cleanUri);
+          const rawTitle = (chunk?.web?.title || '').trim();
+          let title = rawTitle;
+          if (!title) {
+            try {
+              title = new URL(cleanUri).hostname.replace(/^www\./, '');
+            } catch {
+              title = 'Web Source';
+            }
+          }
+          sources.push({ title, url: cleanUri });
+        }
+      }
+    }
+  }
+
+  return sources;
+}
+
 // Gemini Function Declaration for Live Weather Retrieval
 const liveWeatherDeclaration: FunctionDeclaration = {
   name: 'getLiveWeather',
@@ -245,6 +284,19 @@ When ${userName} asks for current live weather, temperature, heat/cold, rain/baa
 - If the user did not specify a city, check their profile location (${userPlace || 'none'}). If no location is known at all, ask: "Which city's weather should I check?" (or "Aapko kis city ka weather check karna hai boss?").
 - If the live weather service reports that data is temporarily unavailable or city not found, be honest: tell ${userName} that live weather information is temporarily unavailable right now, rather than inventing numbers.
 
+=== LIVE WEB SEARCH & CURRENT INFORMATION ===
+Gemini's native Google Search grounding tool is enabled for you:
+- Automatically ground your answers using Google Search when ${userName} asks for information that is current, changing, recent, breaking, live, tech updates, dates, or outside your static knowledge:
+  * Today's / latest news ("Aaj ki AI news batao", "Latest news about OpenAI batao", "Who won today's match?")
+  * Real-time policy, business, or government updates ("India mein UPI ka latest update kya hai?")
+  * Specific upcoming dates or festival calendars ("2026 mein Diwali kab hai?")
+  * Tech releases and software versions ("Latest React version kya hai?")
+  * Local city events or happenings ("Patna mein aaj kya events hain?")
+  * Fact-checking claims ("Is this news true?")
+- Standard evergreen or timeless queries ("What is 2 + 2?", "Explain photosynthesis", "What is gravity?") DO NOT need web search. Answer them directly from your knowledge.
+- Produce a concise, natural, conversational answer in Tia's witty style based on the retrieved web information.
+- For voice responses, summarize the important facts smoothly without reading aloud raw URLs.
+
 === SPOKEN VOICE DELIVERY ===
 - Voice-First conciseness: Keep answers concise (1 to 3 spoken sentences).
 - Do NOT output markdown symbols (**bold**, hashtags #, bullets -, backticks).
@@ -413,6 +465,8 @@ export async function handleChatRequest(req: IncomingMessage, res: ServerRespons
     const ai = getAi();
     const candidateModels = [
       'gemini-3.1-flash-lite',
+      'gemini-3.5-flash-lite',
+      'gemini-flash-lite-latest',
       'gemini-3.8-flash',
       'gemini-flash-latest',
     ];
@@ -421,28 +475,70 @@ export async function handleChatRequest(req: IncomingMessage, res: ServerRespons
     let response: any = null;
     let successfulModel = 'gemini-3.1-flash-lite';
     let lastError: any = null;
+    let capturedSources: GroundingSource[] = [];
 
     for (const modelName of candidateModels) {
       try {
-        // Step 1: Call Gemini with Live Weather tool declaration
-        const firstResponse = await ai.models.generateContent({
-          model: modelName,
-          contents,
-          config: {
-            systemInstruction,
-            tools: [{ functionDeclarations: [liveWeatherDeclaration] }],
-            temperature: 0.82,
-            maxOutputTokens: 350,
-          },
-        });
+        let firstResponse: any = null;
+
+        // Step 1: Call Gemini with native Google Search grounding tool and Live Weather function declaration
+        try {
+          firstResponse = await ai.models.generateContent({
+            model: modelName,
+            contents,
+            config: {
+              systemInstruction,
+              tools: [
+                { googleSearch: {} },
+                { functionDeclarations: [liveWeatherDeclaration] },
+              ],
+              toolConfig: { includeServerSideToolInvocations: true },
+              temperature: 0.82,
+              maxOutputTokens: 380,
+            },
+          });
+        } catch (searchToolErr: any) {
+          // If googleSearch grounding hits 429 quota, 503 high demand, or is not supported on this model,
+          // fall back to calling this model with just the weather tool
+          const errMsg = String(searchToolErr?.message || '');
+          if (
+            errMsg.includes('429') ||
+            errMsg.includes('RESOURCE_EXHAUSTED') ||
+            errMsg.includes('503') ||
+            errMsg.includes('UNAVAILABLE') ||
+            errMsg.includes('googleSearch') ||
+            errMsg.includes('tool')
+          ) {
+            firstResponse = await ai.models.generateContent({
+              model: modelName,
+              contents,
+              config: {
+                systemInstruction,
+                tools: [{ functionDeclarations: [liveWeatherDeclaration] }],
+                temperature: 0.82,
+                maxOutputTokens: 380,
+              },
+            });
+          } else {
+            throw searchToolErr;
+          }
+        }
+
+        // Extract native Google Search grounding citations if any
+        if (firstResponse) {
+          const sources = extractGroundingSources(firstResponse);
+          if (sources.length > 0) {
+            capturedSources = sources;
+          }
+        }
 
         // Check if Gemini invoked getLiveWeather
-        const functionCall = firstResponse.functionCalls?.find(
-          (c) => c.name === 'getLiveWeather'
+        const weatherCall = firstResponse?.functionCalls?.find(
+          (c: any) => c.name === 'getLiveWeather'
         );
 
-        if (functionCall) {
-          let reqLocation = ((functionCall.args as any)?.location || '').trim();
+        if (weatherCall) {
+          let reqLocation = ((weatherCall.args as any)?.location || '').trim();
           if (!reqLocation || /^(here|current\s*location|my\s*city|my\s*location)$/i.test(reqLocation)) {
             reqLocation = userPlace;
           }
@@ -462,7 +558,7 @@ export async function handleChatRequest(req: IncomingMessage, res: ServerRespons
             ...contents,
             firstResponse.candidates?.[0]?.content,
             {
-              role: 'tool',
+              role: 'user',
               parts: [
                 {
                   functionResponse: {
@@ -535,7 +631,7 @@ export async function handleChatRequest(req: IncomingMessage, res: ServerRespons
             break;
           }
         } else {
-          // Standard non-weather query
+          // Standard response (grounded with Google Search or direct answer)
           if (firstResponse && firstResponse.text) {
             response = firstResponse;
             successfulModel = modelName;
@@ -545,18 +641,14 @@ export async function handleChatRequest(req: IncomingMessage, res: ServerRespons
       } catch (err: any) {
         lastError = err;
         const msg = String(err?.message || '');
-        if (msg.includes('404') || msg.includes('not found')) {
-          continue;
-        }
-        if (msg.includes('429') || msg.includes('RESOURCE_EXHAUSTED')) {
-          continue;
-        }
-        break;
+        console.warn(`[Gemini Model Failover] Candidate model ${modelName} unavailable (${err?.status || 'status'} - ${msg.slice(0, 100)}). Trying next model...`);
+        // Always try the next candidate model (gemini-3.1-flash-lite, gemini-3.5-flash-lite, gemini-flash-lite-latest, gemini-3.8-flash, etc.)
+        continue;
       }
     }
 
     if (!response || !response.text) {
-      throw lastError || new Error('No model returned a response');
+      throw lastError || new Error('All candidate models were temporarily unavailable');
     }
 
     const rawText = response.text.trim();
@@ -651,6 +743,7 @@ export async function handleChatRequest(req: IncomingMessage, res: ServerRespons
         detectedLanguage: parsedData.detectedLanguage,
         contextType: parsedData.contextType,
         suggestedVoiceGender: parsedData.suggestedVoiceGender,
+        sources: capturedSources.length > 0 ? capturedSources : undefined,
         model: successfulModel,
         ...(hasLocalProfile
           ? { localProfile }
@@ -658,14 +751,26 @@ export async function handleChatRequest(req: IncomingMessage, res: ServerRespons
       })
     );
   } catch (err: any) {
-    console.error('Error handling chat request:', err);
     const errorMessage = String(err?.message || '');
     const isQuotaOrRate =
       errorMessage.includes('429') ||
       errorMessage.includes('quota') ||
       errorMessage.includes('RESOURCE_EXHAUSTED');
+    const isUnavailableOrHighDemand =
+      errorMessage.includes('503') ||
+      errorMessage.includes('UNAVAILABLE') ||
+      errorMessage.includes('high demand') ||
+      errorMessage.includes('temporarily unavailable');
 
-    const safeFallback = isQuotaOrRate
+    if (isUnavailableOrHighDemand || isQuotaOrRate) {
+      console.warn('[Chat Handler Warning] Gemini models busy or under temporary demand spike:', errorMessage.slice(0, 150));
+    } else {
+      console.error('Error handling chat request:', err);
+    }
+
+    const safeFallback = isUnavailableOrHighDemand
+      ? 'Arre boss! Abhi servers par traffic kaafi heavy hai. Ek pal ruko aur dobara bolo na, main yahin hoon! ☕'
+      : isQuotaOrRate
       ? 'Arre boss! Server pe thodi bheed lag gayi hai. Ek minute baad dobara bolo, tab tak main yahin hoon! ☕'
       : 'Arre boss, network mein thoda jhol ho gaya lagta hai. Ek baar dobara bolo na please? 😄';
 

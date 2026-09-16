@@ -37,6 +37,13 @@ export type ContextType =
   | 'exciting'
   | 'advice';
 
+export interface WebSource {
+  title: string;
+  url: string;
+  source?: string;
+  publishedDate?: string;
+}
+
 export interface Message {
   id: string;
   role: 'user' | 'assistant';
@@ -46,6 +53,7 @@ export interface Message {
   emotion?: TiaEmotion;
   voiceName?: string;
   detectedLanguage?: 'hindi' | 'hinglish' | 'english';
+  sources?: WebSource[];
 }
 
 export type LanguagePreference = 'auto' | 'hinglish' | 'hindi' | 'english';
