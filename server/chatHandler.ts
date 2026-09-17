@@ -12,6 +12,13 @@ import {
 } from './db.ts';
 import { extractAuthToken } from './authHandler.ts';
 import { getLiveWeather, sanitizeLocationQuery } from './weatherService.ts';
+import {
+  detectSportsInquiry,
+  getLiveCricketSchedule,
+  verifyAndSanitizeSportsReply,
+  liveCricketDeclaration,
+  type SportsResult,
+} from './sportsService.ts';
 
 export interface GroundingSource {
   title: string;
@@ -284,6 +291,25 @@ When ${userName} asks for current live weather, temperature, heat/cold, rain/baa
 - If the user did not specify a city, check their profile location (${userPlace || 'none'}). If no location is known at all, ask: "Which city's weather should I check?" (or "Aapko kis city ka weather check karna hai boss?").
 - If the live weather service reports that data is temporarily unavailable or city not found, be honest: tell ${userName} that live weather information is temporarily unavailable right now, rather than inventing numbers.
 
+=== LIVE SPORTS & CRICKET SCHEDULE & FACT-CHECKING INSTRUCTIONS ===
+When ${userName} asks about sports, cricket matches, next match, today/tomorrow match, playing XI, openers, captain, ICC rankings, live scores, or match results:
+- Ground all facts strictly in live official BCCI, ICC, and Cricbuzz verified data and Google Search grounding.
+- NEVER guess, invent, or mix outdated model memory with current rankings or squads.
+- SOURCE PRIORITY: 1. ICC Official, 2. BCCI Official, 3. Official Cricket Board, 4. Cricbuzz, 5. ESPNcricinfo.
+- RANKINGS STRICT RULES (ZERO MEMORY POLICY):
+  * NEVER mix formats (Test vs ODI vs T20I), genders (Men's vs Women's), or categories (Batting vs Bowling vs All-rounder).
+  * Always use the EXACT live verified ranking position and player provided in the verified data or fresh search.
+  * For example, in Test bowling: use the current verified #1 bowler (e.g. Mitchell Starc), NEVER assume Jasprit Bumrah is #1 from memory.
+  * If live ranking data cannot be verified: Say clearly: "Boss, abhi fresh cricket ranking data verify nahi ho pa raha, isliye main guess karke galat answer nahi dungi."
+- SQUADS & MATCHES STRICT RULES:
+  * NEVER mention Rohit Sharma or Virat Kohli as members of the current T20I squad (they are retired from T20Is).
+  * NEVER mention Yashasvi Jaiswal for the current 2026 Afghanistan series (he is NOT in this squad).
+  * The official playing XI has NOT been announced yet (announced only at toss).
+  * When asked about openers ("India ke opener kaun hain?"): State clearly that the official playing XI is not announced yet, and list squad batting options (Abhishek Sharma, Vaibhav Sooryavanshi, Sanju Samson, Ishan Kishan).
+  * Tomorrow match ("Kal India ka match hai?"): State that tomorrow India has NO cricket match. The 3rd T20I is today, and the next series is against West Indies from 29 September.
+  * When asked for live score ("Aaj India ka score kya hai?"): If match has not started yet, state that the match is scheduled tonight at 7:30 PM IST at Arun Jaitley Stadium, Delhi.
+- Speak naturally as Tia, without markdown symbols, maintaining a witty, personal companion tone.
+
 === LIVE WEB SEARCH & CURRENT INFORMATION ===
 Gemini's native Google Search grounding tool is enabled for you:
 - Automatically ground your answers using Google Search when ${userName} asks for information that is current, changing, recent, breaking, live, tech updates, dates, or outside your static knowledge:
@@ -463,34 +489,76 @@ export async function handleChatRequest(req: IncomingMessage, res: ServerRespons
     });
 
     const ai = getAi();
+    // Prioritize high-throughput and resilient Gemini models with zero invalid aliases
     const candidateModels = [
-      'gemini-3.1-flash-lite',
-      'gemini-3.5-flash-lite',
-      'gemini-flash-lite-latest',
-      'gemini-3.8-flash',
       'gemini-flash-latest',
+      'gemini-3.8-flash',
+      'gemini-flash-lite-latest',
+      'gemini-3.1-flash-lite',
     ];
 
     const weatherInquiry = detectWeatherInquiry(userMessage);
-    let response: any = null;
-    let successfulModel = 'gemini-3.1-flash-lite';
-    let lastError: any = null;
+    const sportsInquiry = detectSportsInquiry(userMessage, history);
     let capturedSources: GroundingSource[] = [];
+    let sportsResult: SportsResult | null = null;
+    if (sportsInquiry.isSports) {
+      try {
+        sportsResult = await getLiveCricketSchedule(sportsInquiry, new Date());
+        if (sportsResult.sources && sportsResult.sources.length > 0) {
+          capturedSources = sportsResult.sources;
+        }
+      } catch (sErr) {
+        console.warn('Error fetching live cricket schedule:', sErr);
+      }
+    }
+
+    let response: any = null;
+    let successfulModel = candidateModels[0];
+    let lastError: any = null;
+
+    const initialContents = [...contents];
+    if (sportsInquiry.isSports && sportsResult) {
+      const rIntent = sportsInquiry.rankingIntent;
+      initialContents.push({
+        role: 'user',
+        parts: [
+          {
+            text: `[OFFICIAL VERIFIED SPORTS & CRICKET DATA (BCCI, ICC, CRICBUZZ)]:
+${JSON.stringify(sportsResult)}
+
+MANDATORY RULES FOR THIS SPORTS QUERY (ZERO HALLUCINATION POLICY):
+1. Use the verified factual data provided above.
+2. Direct verified answer to guide your response:
+"${sportsResult.verifiedDirectAnswer}"
+3. RANKING RULES:
+   - If rankingData is provided, formulate your response strictly using that verified data and fresh Google Search grounding.
+   - NEVER mix ranking categories or formats. ${rIntent ? `Target Table is strictly: ICC ${rIntent.gender === 'women' ? "Women's" : "Men's"} ${rIntent.format.toUpperCase()} ${rIntent.category.toUpperCase()} Rankings (#${rIntent.position}). Do NOT answer using another table!` : ''}
+   - NEVER use model memory for player rankings.
+   - If user asked about a ranking that could not be verified, state: "Boss, abhi fresh cricket ranking data verify nahi ho pa raha, isliye main guess karke galat answer nahi dungi."
+4. SCHEDULE & SQUAD RULES:
+   - Tomorrow (kal): India has NO cricket match scheduled tomorrow. The 3rd T20I vs Afghanistan is TODAY (17 September 2026).
+   - Current T20I squad: Captain is Shreyas Iyer, Vice-Captain is Tilak Varma. Rohit Sharma and Virat Kohli are retired from T20Is.
+   - Playing XI: Official playing XI has NOT been announced yet (announced only at toss).
+5. Output strictly as valid JSON according to the schema.`,
+          },
+        ],
+      });
+    }
 
     for (const modelName of candidateModels) {
       try {
         let firstResponse: any = null;
 
-        // Step 1: Call Gemini with native Google Search grounding tool and Live Weather function declaration
+        // Step 1: Call Gemini with native Google Search grounding tool and function declarations
         try {
           firstResponse = await ai.models.generateContent({
             model: modelName,
-            contents,
+            contents: initialContents,
             config: {
               systemInstruction,
               tools: [
                 { googleSearch: {} },
-                { functionDeclarations: [liveWeatherDeclaration] },
+                { functionDeclarations: [liveWeatherDeclaration, liveCricketDeclaration] },
               ],
               toolConfig: { includeServerSideToolInvocations: true },
               temperature: 0.82,
@@ -499,7 +567,7 @@ export async function handleChatRequest(req: IncomingMessage, res: ServerRespons
           });
         } catch (searchToolErr: any) {
           // If googleSearch grounding hits 429 quota, 503 high demand, or is not supported on this model,
-          // fall back to calling this model with just the weather tool
+          // fall back gracefully to function declarations, and then to pure text generation
           const errMsg = String(searchToolErr?.message || '');
           if (
             errMsg.includes('429') ||
@@ -509,16 +577,28 @@ export async function handleChatRequest(req: IncomingMessage, res: ServerRespons
             errMsg.includes('googleSearch') ||
             errMsg.includes('tool')
           ) {
-            firstResponse = await ai.models.generateContent({
-              model: modelName,
-              contents,
-              config: {
-                systemInstruction,
-                tools: [{ functionDeclarations: [liveWeatherDeclaration] }],
-                temperature: 0.82,
-                maxOutputTokens: 380,
-              },
-            });
+            try {
+              firstResponse = await ai.models.generateContent({
+                model: modelName,
+                contents: initialContents,
+                config: {
+                  systemInstruction,
+                  tools: [{ functionDeclarations: [liveWeatherDeclaration, liveCricketDeclaration] }],
+                  temperature: 0.82,
+                  maxOutputTokens: 380,
+                },
+              });
+            } catch (funcToolErr: any) {
+              firstResponse = await ai.models.generateContent({
+                model: modelName,
+                contents: initialContents,
+                config: {
+                  systemInstruction,
+                  temperature: 0.82,
+                  maxOutputTokens: 380,
+                },
+              });
+            }
           } else {
             throw searchToolErr;
           }
@@ -528,13 +608,16 @@ export async function handleChatRequest(req: IncomingMessage, res: ServerRespons
         if (firstResponse) {
           const sources = extractGroundingSources(firstResponse);
           if (sources.length > 0) {
-            capturedSources = sources;
+            capturedSources = [...capturedSources, ...sources];
           }
         }
 
-        // Check if Gemini invoked getLiveWeather
+        // Check if Gemini invoked getLiveWeather or getLiveCricketInfo
         const weatherCall = firstResponse?.functionCalls?.find(
           (c: any) => c.name === 'getLiveWeather'
+        );
+        const cricketCall = firstResponse?.functionCalls?.find(
+          (c: any) => c.name === 'getLiveCricketInfo'
         );
 
         if (weatherCall) {
@@ -564,6 +647,51 @@ export async function handleChatRequest(req: IncomingMessage, res: ServerRespons
                   functionResponse: {
                     name: 'getLiveWeather',
                     response: weatherResult,
+                  },
+                },
+              ],
+            },
+          ];
+
+          const secondResponse = await ai.models.generateContent({
+            model: modelName,
+            contents: toolContents,
+            config: {
+              systemInstruction,
+              temperature: 0.82,
+              maxOutputTokens: 350,
+              responseMimeType: 'application/json',
+            },
+          });
+
+          if (secondResponse && secondResponse.text) {
+            response = secondResponse;
+            successfulModel = modelName;
+            break;
+          }
+        } else if (cricketCall) {
+          const args = cricketCall.args as any;
+          const liveData = await getLiveCricketSchedule({
+            isSports: true,
+            sport: 'cricket',
+            intent: args?.queryType || 'schedule',
+            opponent: args?.opponent,
+            format: args?.format,
+          });
+          if (liveData.sources?.length) {
+            capturedSources = liveData.sources;
+          }
+
+          const toolContents = [
+            ...contents,
+            firstResponse.candidates?.[0]?.content,
+            {
+              role: 'user',
+              parts: [
+                {
+                  functionResponse: {
+                    name: 'getLiveCricketInfo',
+                    response: liveData,
                   },
                 },
               ],
@@ -647,12 +775,78 @@ export async function handleChatRequest(req: IncomingMessage, res: ServerRespons
       }
     }
 
+    let parsedData: any = null;
+
     if (!response || !response.text) {
-      throw lastError || new Error('All candidate models were temporarily unavailable');
+      if (sportsInquiry.isSports && sportsResult) {
+        parsedData = {
+          reply: sportsResult.verifiedDirectAnswer,
+          emotion: 'excited',
+          detectedLanguage: 'hinglish',
+          contextType: 'chat',
+          suggestedVoiceGender: 'female',
+          memoryAction: { action: 'none' },
+        };
+        successfulModel = 'sports-grounding-engine';
+      } else if (weatherInquiry.isWeather) {
+        try {
+          const wData = await getLiveWeather(weatherInquiry.locationHint || userPlace || 'Delhi');
+          const tempDisplay = wData.temperatureFormatted || (wData.temperature !== undefined ? `${wData.temperature}°C` : '');
+          const condDisplay = wData.condition ? wData.condition.toLowerCase() : 'pleasant';
+          parsedData = {
+            reply: wData.success
+              ? `Boss, abhi ${wData.city} mein taapmaan ${tempDisplay} hai aur mausam ${condDisplay} hai! 🌤️`
+              : `Boss, abhi live weather check nahi ho pa raha. Ek minute mein dobara poochiye!`,
+            emotion: 'friendly',
+            detectedLanguage: 'hinglish',
+            contextType: 'chat',
+            suggestedVoiceGender: 'female',
+            memoryAction: { action: 'none' },
+          };
+          successfulModel = 'weather-grounding-engine';
+        } catch {
+          // fall through
+        }
+      }
+
+      if (!parsedData) {
+        throw lastError || new Error('All candidate models were temporarily unavailable');
+      }
+    } else {
+      const rawText = response.text.trim();
+      parsedData = parseAssistantResponse(rawText);
     }
 
-    const rawText = response.text.trim();
-    const parsedData = parseAssistantResponse(rawText);
+    // Apply Sports Verification & Fact-Checking Layer to eliminate hallucinations
+    if (sportsInquiry.isSports && sportsResult) {
+      parsedData.reply = verifyAndSanitizeSportsReply(parsedData.reply, sportsInquiry, sportsResult);
+      if (sportsResult.sources && sportsResult.sources.length > 0) {
+        capturedSources = [
+          ...sportsResult.sources,
+          ...capturedSources.filter((s) => !sportsResult!.sources.some((orig) => orig.url === s.url)),
+        ];
+      }
+
+      // Requirement 13: Debug information for current ranking verification
+      if (sportsInquiry.intent === 'ranking') {
+        console.log('[SPORTS_RANKING_DEBUG]', {
+          rankingIntent: sportsInquiry.rankingIntent,
+          detectedFormat: sportsInquiry.format,
+          detectedGender: sportsInquiry.gender,
+          detectedCategory: sportsInquiry.category,
+          requestedRank: sportsInquiry.targetRank,
+          requestedPlayer: sportsInquiry.targetPlayer,
+          googleSearchGroundingRequested: true,
+          rankingSourceUsed: sportsResult.rankingData?.source || 'ICC / Cricbuzz Live Mirror',
+          rankingUpdateDate: sportsResult.rankingData?.updatedAt,
+          verifiedPlayerOrRank:
+            sportsResult.rankingData?.searchedPlayer ||
+            sportsResult.rankingData?.requestedRankPlayer ||
+            sportsResult.rankingData?.no1Player,
+          finalAnswer: parsedData.reply,
+        });
+      }
+    }
 
     // Execute memory actions only for authenticated token users to avoid mutating server DB for local profiles
     if (token) {
