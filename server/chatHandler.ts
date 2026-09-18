@@ -25,6 +25,10 @@ export interface GroundingSource {
   url: string;
 }
 
+// Cooldown tracking for models and tools that encounter rate limits / 429 quota exhaustion
+const modelRateLimitCooldowns = new Map<string, number>();
+let googleSearchQuotaCooldownUntil = 0;
+
 /**
  * Extract web grounding citation sources returned by Gemini's native Google Search tool
  */
@@ -490,12 +494,19 @@ export async function handleChatRequest(req: IncomingMessage, res: ServerRespons
 
     const ai = getAi();
     // Prioritize high-throughput and resilient Gemini models with zero invalid aliases
-    const candidateModels = [
+    const rawCandidateModels = [
+      'gemini-3.1-flash-lite',
       'gemini-flash-latest',
       'gemini-3.8-flash',
-      'gemini-flash-lite-latest',
-      'gemini-3.1-flash-lite',
     ];
+
+    const now = Date.now();
+    // Prioritize models that are not currently under rate limit cooldown
+    const candidateModels = [...rawCandidateModels].sort((a, b) => {
+      const aCooldown = (modelRateLimitCooldowns.get(a) || 0) > now ? 1 : 0;
+      const bCooldown = (modelRateLimitCooldowns.get(b) || 0) > now ? 1 : 0;
+      return aCooldown - bCooldown;
+    });
 
     const weatherInquiry = detectWeatherInquiry(userMessage);
     const sportsInquiry = detectSportsInquiry(userMessage, history);
@@ -545,6 +556,13 @@ MANDATORY RULES FOR THIS SPORTS QUERY (ZERO HALLUCINATION POLICY):
       });
     }
 
+    const canUseGoogleSearch = Date.now() > googleSearchQuotaCooldownUntil;
+    const initialTools: any[] = [];
+    if (canUseGoogleSearch) {
+      initialTools.push({ googleSearch: {} });
+    }
+    initialTools.push({ functionDeclarations: [liveWeatherDeclaration, liveCricketDeclaration] });
+
     for (const modelName of candidateModels) {
       try {
         let firstResponse: any = null;
@@ -556,10 +574,7 @@ MANDATORY RULES FOR THIS SPORTS QUERY (ZERO HALLUCINATION POLICY):
             contents: initialContents,
             config: {
               systemInstruction,
-              tools: [
-                { googleSearch: {} },
-                { functionDeclarations: [liveWeatherDeclaration, liveCricketDeclaration] },
-              ],
+              tools: initialTools,
               toolConfig: { includeServerSideToolInvocations: true },
               temperature: 0.82,
               maxOutputTokens: 380,
@@ -569,9 +584,17 @@ MANDATORY RULES FOR THIS SPORTS QUERY (ZERO HALLUCINATION POLICY):
           // If googleSearch grounding hits 429 quota, 503 high demand, or is not supported on this model,
           // fall back gracefully to function declarations, and then to pure text generation
           const errMsg = String(searchToolErr?.message || '');
-          if (
+          const isRateLimit =
             errMsg.includes('429') ||
             errMsg.includes('RESOURCE_EXHAUSTED') ||
+            (searchToolErr as any)?.status === 429;
+
+          if (isRateLimit && initialTools.some((t: any) => t.googleSearch)) {
+            googleSearchQuotaCooldownUntil = Date.now() + 5 * 60 * 1000;
+          }
+
+          if (
+            isRateLimit ||
             errMsg.includes('503') ||
             errMsg.includes('UNAVAILABLE') ||
             errMsg.includes('googleSearch') ||
@@ -769,10 +792,24 @@ MANDATORY RULES FOR THIS SPORTS QUERY (ZERO HALLUCINATION POLICY):
       } catch (err: any) {
         lastError = err;
         const msg = String(err?.message || '');
-        console.warn(`[Gemini Model Failover] Candidate model ${modelName} unavailable (${err?.status || 'status'} - ${msg.slice(0, 100)}). Trying next model...`);
-        // Always try the next candidate model (gemini-3.1-flash-lite, gemini-3.5-flash-lite, gemini-flash-lite-latest, gemini-3.8-flash, etc.)
+        const isQuotaOrRateLimit =
+          msg.includes('429') ||
+          msg.includes('RESOURCE_EXHAUSTED') ||
+          msg.includes('quota') ||
+          (err as any)?.status === 429;
+
+        if (isQuotaOrRateLimit) {
+          modelRateLimitCooldowns.set(modelName, Date.now() + 120_000);
+          console.info(`[Model Selector] Model ${modelName} reached rate limit, switching to next candidate...`);
+        } else {
+          console.info(`[Model Selector] Model ${modelName} temporary issue (${err?.status || 'retry'}), trying next candidate...`);
+        }
         continue;
       }
+    }
+
+    if (successfulModel) {
+      modelRateLimitCooldowns.delete(successfulModel);
     }
 
     let parsedData: any = null;
