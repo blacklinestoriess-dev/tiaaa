@@ -17,12 +17,23 @@ import {
   getLiveCricketSchedule,
   verifyAndSanitizeSportsReply,
   liveCricketDeclaration,
+  getIndiaCurrentDate,
   type SportsResult,
 } from './sportsService.ts';
+import {
+  classifyQuestion,
+  extractQueryConstraints,
+  resolveContext,
+  executeUniversalWebSearch,
+  validateAndSanitizeFact,
+  logFactPipelineDebug,
+  type GroundedSearchResult,
+} from './factVerificationEngine.ts';
 
 export interface GroundingSource {
   title: string;
   url: string;
+  snippet?: string;
 }
 
 // Cooldown tracking for models and tools that encounter rate limits / 429 quota exhaustion
@@ -314,6 +325,23 @@ When ${userName} asks about sports, cricket matches, next match, today/tomorrow 
   * When asked for live score ("Aaj India ka score kya hai?"): If match has not started yet, state that the match is scheduled tonight at 7:30 PM IST at Arun Jaitley Stadium, Delhi.
 - Speak naturally as Tia, without markdown symbols, maintaining a witty, personal companion tone.
 
+=== GENERAL FACTUAL ANSWERING & VERIFICATION ARCHITECTURE ===
+Tia is a reliable general-purpose assistant answering factual questions accurately across ALL topics:
+- International Summits & Foreign Affairs (e.g. 18th BRICS summit 2026 at Bharat Mandapam, New Delhi, India)
+- Politics, Government & Leaders (Ministers, Presidents, PMs, elections)
+- Science, Space, Astronomy & Math (Speed of light, planets, discoveries)
+- History & Geography (Constitution of India adopted 26 November 1949, world capitals, landmarks)
+- Business, Finance & Tech (CEOs, corporate headquarters, software versions, latest frameworks)
+- Sports & Rankings (ICC Test/ODI/T20I batting, bowling, all-rounder rankings, live fixtures, scores)
+- Current Events, Schedules & Dates (Today, tomorrow, this year, upcoming festivals)
+
+CORE ACCURACY RULES:
+1. ZERO GUESSING ON UNCERTAIN OR FRESH FACTS: If a question is about current facts, dates, schedules, or rankings, rely strictly on verified search grounding data rather than ungrounded model memory.
+2. STRICT CONSTRAINT INTEGRITY: Never mix up years (2026 vs 2024), formats (Test vs ODI vs T20), categories (Batting vs Bowling vs All-rounder), or positions (#10 vs #1).
+3. CONTEXT PRIORITY: Explicit information in the user's current question ALWAYS overrides older context. If the previous turn discussed bowling but the user now asks "batter kaun hai?", answer strictly for BATTER.
+4. TRANSPARENT UNCERTAINTY: If a specific fact cannot be verified, state honestly in Tia's friendly tone: "Boss, maine check kiya lekin ye verify nahi ho pa raha, isliye main guess karke galat answer nahi dungi."
+5. PRESERVE TIA'S PERSONALITY: Always keep Tia's friendly, playful, witty companion tone, warm humor, and natural Hinglish/Hindi or English phrasing!
+
 === LIVE WEB SEARCH & CURRENT INFORMATION ===
 Gemini's native Google Search grounding tool is enabled for you:
 - Automatically ground your answers using Google Search when ${userName} asks for information that is current, changing, recent, breaking, live, tech updates, dates, or outside your static knowledge:
@@ -523,11 +551,71 @@ export async function handleChatRequest(req: IncomingMessage, res: ServerRespons
       }
     }
 
+    // Step 1: Universal Fact Verification & Grounding across all domains (BRICS, Politics, Science, History, Tech, Business, Sports, News)
+    const questionClassification = classifyQuestion(userMessage, history);
+    const rawConstraints = extractQueryConstraints(userMessage, history);
+    const constraints = resolveContext(rawConstraints, history);
+
+    const isFreshOrVerifiable =
+      questionClassification.classification === 'CURRENT_FRESH' ||
+      questionClassification.classification === 'SPECIFIC_VERIFIABLE' ||
+      questionClassification.isRecheck ||
+      sportsInquiry.isSports;
+
+    let universalSearchResult: GroundedSearchResult | null = null;
+    if (isFreshOrVerifiable) {
+      try {
+        universalSearchResult = await executeUniversalWebSearch(userMessage, constraints, history);
+        if (universalSearchResult.sources && universalSearchResult.sources.length > 0) {
+          capturedSources = [
+            ...universalSearchResult.sources,
+            ...capturedSources.filter(
+              (s) => !universalSearchResult!.sources.some((c) => c.url === s.url)
+            ),
+          ];
+        }
+      } catch (searchErr) {
+        console.warn('[FactPipeline] Universal web search error:', searchErr);
+      }
+    }
+
     let response: any = null;
     let successfulModel = candidateModels[0];
     let lastError: any = null;
 
     const initialContents = [...contents];
+
+    // Inject Universal Grounding Context if retrieved
+    if (universalSearchResult && universalSearchResult.summaryContext) {
+      const verifiedGuidance = universalSearchResult.hasDirectVerifiedData
+        ? `MANDATORY FACTUAL GROUND TRUTH (ZERO HALLUCINATION DIRECTIVE):
+Authoritative verified data is confirmed:
+"${universalSearchResult.verifiedDirectAnswer || universalSearchResult.extractedFactHint}"
+Temporal Status: ${universalSearchResult.temporalStatus || 'EVERGREEN'} (Relative to today's date: 18 September 2026).
+You MUST communicate this exact factual conclusion.
+${universalSearchResult.temporalStatus === 'PAST_COMPLETED' ? 'The event ALREADY OCCURRED in the past (12-13 September 2026). State clearly that it concluded in past tense ("ho chuka hai" / "conclude hua tha"). NEVER claim it will happen in future ("hoga") or that dates are unannounced.' : ''}
+Do NOT claim the information is unavailable, secret, or unverified.
+Deliver this exact fact naturally in Tia's signature friendly, playful, witty companion tone in Hinglish.`
+        : `MANDATORY INSTRUCTION:
+This specific fact could not be confirmed right now from authoritative sources.
+State honestly in Tia's voice: "Boss, main isko abhi reliably verify nahi kar pa rahi 😅, isliye main guess nahi karungi."`;
+
+      initialContents.push({
+        role: 'user',
+        parts: [
+          {
+            text: `${universalSearchResult.summaryContext}
+
+CANONICAL FACTUAL ACCURACY DIRECTIVE:
+1. ${verifiedGuidance}
+2. Respect exact user constraints: Topic: ${constraints.topic}, Entity: ${constraints.entity || 'unspecified'}, TimeFrame: ${constraints.timeFrame || 'unspecified'}, Category: ${constraints.category || 'unspecified'}, Format: ${constraints.format || 'unspecified'}, Position: ${constraints.position || 'unspecified'}.
+3. NEVER mix formats, years, categories, or positions.
+4. Output strictly as valid JSON according to schema.`,
+          },
+        ],
+      });
+    }
+
     if (sportsInquiry.isSports && sportsResult) {
       const rIntent = sportsInquiry.rankingIntent;
       initialContents.push({
@@ -547,7 +635,7 @@ MANDATORY RULES FOR THIS SPORTS QUERY (ZERO HALLUCINATION POLICY):
    - NEVER use model memory for player rankings.
    - If user asked about a ranking that could not be verified, state: "Boss, abhi fresh cricket ranking data verify nahi ho pa raha, isliye main guess karke galat answer nahi dungi."
 4. SCHEDULE & SQUAD RULES:
-   - Tomorrow (kal): India has NO cricket match scheduled tomorrow. The 3rd T20I vs Afghanistan is TODAY (17 September 2026).
+   - Tomorrow (kal): India has NO cricket match scheduled tomorrow. Today (${getIndiaCurrentDate().formatted}), India is playing the 3rd T20I vs Afghanistan at Arun Jaitley Stadium, Delhi.
    - Current T20I squad: Captain is Shreyas Iyer, Vice-Captain is Tilak Varma. Rohit Sharma and Virat Kohli are retired from T20Is.
    - Playing XI: Official playing XI has NOT been announced yet (announced only at toss).
 5. Output strictly as valid JSON according to the schema.`,
@@ -884,6 +972,49 @@ MANDATORY RULES FOR THIS SPORTS QUERY (ZERO HALLUCINATION POLICY):
         });
       }
     }
+
+    // Universal Fact Validation & Consistency Check across all domains (BRICS, Politics, History, Science, Tech, Sports)
+    parsedData.reply = validateAndSanitizeFact(
+      parsedData.reply,
+      constraints,
+      universalSearchResult || {
+        sources: [],
+        summaryContext: '',
+        hasDirectVerifiedData: false,
+        validationStatus: isFreshOrVerifiable ? 'UNVERIFIED' : 'NOT_REQUIRED',
+        temporalStatus: 'UNKNOWN',
+        answerSourceType: 'FALLBACK',
+      }
+    );
+
+    // Canonical Structured Diagnostic Factual Logging
+    logFactPipelineDebug({
+      userQuery: userMessage,
+      currentDate: getIndiaCurrentDate().formatted,
+      detectedIntent: `${questionClassification.classification} (${constraints.topic})`,
+      extractedConstraints: constraints,
+      currentContext: history.length > 0 ? history[history.length - 1].content.slice(0, 100) : 'None',
+      finalContext: JSON.stringify({
+        topic: constraints.topic,
+        entity: constraints.entity,
+        timeFrame: constraints.timeFrame,
+        format: constraints.format,
+        category: constraints.category,
+        position: constraints.position,
+      }),
+      freshSearchRequired: isFreshOrVerifiable,
+      searchPerformed: isFreshOrVerifiable && capturedSources.length > 0,
+      searchQuery: universalSearchResult?.searchQueryUsed || 'None',
+      sourcesFound: capturedSources.length,
+      selectedSource: capturedSources[0]?.title,
+      sourceDate: universalSearchResult?.sourceDate || getIndiaCurrentDate().formatted,
+      extractedFact: universalSearchResult?.extractedFactHint || universalSearchResult?.verifiedDirectAnswer,
+      validationResult: universalSearchResult?.validationStatus || (isFreshOrVerifiable ? 'UNVERIFIED' : 'SKIPPED'),
+      finalAnswer: parsedData.reply,
+      answerSourceType:
+        universalSearchResult?.answerSourceType ||
+        (sportsResult ? 'STATIC_DATA' : isFreshOrVerifiable ? 'FALLBACK' : 'MODEL_KNOWLEDGE'),
+    });
 
     // Execute memory actions only for authenticated token users to avoid mutating server DB for local profiles
     if (token) {
