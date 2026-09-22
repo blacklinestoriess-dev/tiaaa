@@ -649,10 +649,16 @@ MANDATORY RULES FOR THIS SPORTS QUERY (ZERO HALLUCINATION POLICY):
    - NEVER mix ranking categories or formats. ${rIntent ? `Target Table is strictly: ICC ${rIntent.gender === 'women' ? "Women's" : "Men's"} ${rIntent.format.toUpperCase()} ${rIntent.category.toUpperCase()} Rankings (#${rIntent.position}). Do NOT answer using another table!` : ''}
    - NEVER use model memory for player rankings.
    - If user asked about a ranking that could not be verified, state: "Boss, abhi fresh cricket ranking data verify nahi ho pa raha, isliye main guess karke galat answer nahi dungi."
-4. SCHEDULE & SQUAD RULES:
-   - 17 September 2026: The 3rd T20I vs Afghanistan was COMPLETED on 17 September 2026 at Arun Jaitley Stadium, Delhi. India (212/4) defeated Afghanistan (85) by 127 runs and won the series 3-0.
-   - Today (${getIndiaCurrentDate().formatted}) & Tomorrow: India has NO cricket match scheduled. Afghanistan series concluded on 17 September.
-   - Next match: 29 September 2026 vs West Indies (1st ODI) at Greenfield International Stadium, Trivandrum.
+4. SCHEDULE & MATCH RULES:
+   - Evaluated relative to Today's date (${getIndiaCurrentDate().formatted}):
+     ${
+       sportsResult.hasMatch && sportsResult.match
+         ? `Verified match: ${sportsResult.match.team1} vs ${sportsResult.match.team2} (${sportsResult.match.format}) on ${sportsResult.match.date} at ${sportsResult.match.venue}. Status: ${sportsResult.match.status}. Direct answer: "${sportsResult.verifiedDirectAnswer}". You MUST affirm this match. NEVER say "No match today" or "koi match nahi hai".`
+         : sportsResult.isVerifiedLive === false
+           ? `Live cricket schedule could not be verified from fresh sources. You MUST say: "Main abhi live cricket schedule verify nahi kar pa rahi hoon, isliye main guess nahi karungi." NEVER use old static schedules or guess.`
+           : `Direct verified answer: "${sportsResult.verifiedDirectAnswer}".`
+     }
+   - 17 September 2026: The 3rd T20I vs Afghanistan was COMPLETED on 17 September 2026 at Arun Jaitley Stadium, Delhi (India 212/4 defeated Afghanistan 85 by 127 runs).
    - Current T20I squad: Captain is Shreyas Iyer, Vice-Captain is Tilak Varma. Rohit Sharma and Virat Kohli are retired from T20Is.
    - Playing XI: Official playing XI has NOT been announced yet (announced only at toss).
 5. Output strictly as valid JSON according to the schema.`,
@@ -991,6 +997,24 @@ MANDATORY RULES FOR THIS SPORTS QUERY (ZERO HALLUCINATION POLICY):
     }
 
     // Universal Fact Validation & Consistency Check across all domains (BRICS, Politics, History, Science, Tech, Sports)
+    if (sportsInquiry.isSports && sportsResult && (!universalSearchResult || !universalSearchResult.hasDirectVerifiedData)) {
+      universalSearchResult = {
+        sources: sportsResult.sources,
+        summaryContext: sportsResult.summary,
+        hasDirectVerifiedData: sportsResult.isVerifiedLive,
+        verifiedDirectAnswer: sportsResult.verifiedDirectAnswer,
+        extractedFactHint: sportsResult.verifiedDirectAnswer,
+        temporalStatus:
+          sportsResult.match?.status === 'today'
+            ? 'ONGOING'
+            : sportsResult.match?.status === 'past'
+              ? 'PAST_COMPLETED'
+              : 'UPCOMING',
+        validationStatus: sportsResult.isVerifiedLive ? 'MATCHED' : 'UNVERIFIED',
+        answerSourceType: 'WEB_VERIFIED',
+      };
+    }
+
     parsedData.reply = validateAndSanitizeFact(
       parsedData.reply,
       constraints,
