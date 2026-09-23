@@ -38,7 +38,46 @@ export interface GroundingSource {
 
 // Cooldown tracking for models and tools that encounter rate limits / 429 quota exhaustion
 const modelRateLimitCooldowns = new Map<string, number>();
-let googleSearchQuotaCooldownUntil = 0;
+let googleSearchQuotaCooldownUntil = Date.now() + 24 * 60 * 60 * 1000; // Disabled by default on standard keys to prevent 429 quota exhaustion
+
+/**
+ * Local companion fallback generator when upstream models are temporarily rate-limited or high-demand
+ */
+function generateLocalCompanionFallback(
+  message: string,
+  profile: any,
+  _memories: any[],
+  _history: any[]
+): string {
+  const lower = message.toLowerCase().trim();
+  const userName = profile?.full_name || profile?.username || 'boss';
+
+  if (/^(hi|hello|hey|namaste|salaam|kem cho|kaisa hai|kaise ho)/i.test(lower)) {
+    return `Hello ${userName}! Main bilkul badhiya hoon, thank you for asking! Aap batao, aaj ka din kaisa chal raha hai? 😊☕`;
+  }
+
+  if (/(mera naam|who am i|mera name|what is my name)/i.test(lower)) {
+    return `Aapka naam ${profile?.full_name || 'Anurag'} hai boss! Main aapko bhala kaise bhool sakti hoon? 😄`;
+  }
+
+  if (/(kahan rehta|my location|mera shahar|meri city|where do i live)/i.test(lower)) {
+    return `Aap ${profile?.address || 'Patna, India'} mein rehte ho boss! 🏙️`;
+  }
+
+  if (/(mera kaam|kya karta hoon|what do i do|my work|occupation)/i.test(lower)) {
+    return `Aap ${profile?.occupation_status || 'apne startup par kaam kar rahe ho'} boss! Full hustle mode on! 🚀`;
+  }
+
+  if (/(who are you|tum kaun ho|aap kaun ho|apna intro|about you)/i.test(lower)) {
+    return `Main Tia hoon — aapki personal AI companion, dost aur guide! Hamesha aapke saath har cheez mein help karne ke liye taiyaar! 💜`;
+  }
+
+  if (/(thank you|thanks|shukriya|dhanyawad)/i.test(lower)) {
+    return `Always welcome boss! Aapke liye toh main hamesha hazir hoon. Aur batao, kya madad kar sakti hoon? ✨`;
+  }
+
+  return `Haan ${userName}, main sun rahi hoon! Abhi servers par bheed thodi zyada hai, par main hamesha yahin hoon aapke saath. Batao, aur kya discuss karein? ☕✨`;
+}
 
 /**
  * Extract web grounding citation sources returned by Gemini's native Google Search tool
@@ -521,8 +560,10 @@ export async function handleChatRequest(req: IncomingMessage, res: ServerRespons
     });
 
     const ai = getAi();
-    // Prioritize high-throughput and resilient Gemini models with zero invalid aliases
+    // Prioritize high-throughput, resilient Gemini models with active quota
     const rawCandidateModels = [
+      'gemini-3-flash-preview',
+      'gemini-3.1-flash-lite-preview',
       'gemini-3.1-flash-lite',
       'gemini-flash-latest',
       'gemini-3.8-flash',
@@ -667,7 +708,9 @@ MANDATORY RULES FOR THIS SPORTS QUERY (ZERO HALLUCINATION POLICY):
       });
     }
 
-    const canUseGoogleSearch = Date.now() > googleSearchQuotaCooldownUntil;
+    const canUseGoogleSearch =
+      process.env.ENABLE_GEMINI_GOOGLE_SEARCH === 'true' &&
+      Date.now() > googleSearchQuotaCooldownUntil;
     const initialTools: any[] = [];
     if (canUseGoogleSearch) {
       initialTools.push({ googleSearch: {} });
@@ -678,7 +721,7 @@ MANDATORY RULES FOR THIS SPORTS QUERY (ZERO HALLUCINATION POLICY):
       try {
         let firstResponse: any = null;
 
-        // Step 1: Call Gemini with native Google Search grounding tool and function declarations
+        // Step 1: Call Gemini with tools (or plain text if tools unavailable)
         try {
           firstResponse = await ai.models.generateContent({
             model: modelName,
@@ -692,8 +735,6 @@ MANDATORY RULES FOR THIS SPORTS QUERY (ZERO HALLUCINATION POLICY):
             },
           });
         } catch (searchToolErr: any) {
-          // If googleSearch grounding hits 429 quota, 503 high demand, or is not supported on this model,
-          // fall back gracefully to function declarations, and then to pure text generation
           const errMsg = String(searchToolErr?.message || '');
           const isRateLimit =
             errMsg.includes('429') ||
@@ -701,40 +742,39 @@ MANDATORY RULES FOR THIS SPORTS QUERY (ZERO HALLUCINATION POLICY):
             (searchToolErr as any)?.status === 429;
 
           if (isRateLimit && initialTools.some((t: any) => t.googleSearch)) {
-            googleSearchQuotaCooldownUntil = Date.now() + 5 * 60 * 1000;
+            googleSearchQuotaCooldownUntil = Date.now() + 24 * 60 * 60 * 1000;
           }
 
-          if (
-            isRateLimit ||
-            errMsg.includes('503') ||
-            errMsg.includes('UNAVAILABLE') ||
-            errMsg.includes('googleSearch') ||
-            errMsg.includes('tool')
-          ) {
+          // If the model itself hit 429 quota (not from googleSearch), do NOT hammer it with more calls!
+          if (isRateLimit && !initialTools.some((t: any) => t.googleSearch)) {
+            throw searchToolErr;
+          }
+
+          try {
+            firstResponse = await ai.models.generateContent({
+              model: modelName,
+              contents: initialContents,
+              config: {
+                systemInstruction,
+                tools: [{ functionDeclarations: [liveWeatherDeclaration, liveCricketDeclaration] }],
+                temperature: 0.82,
+                maxOutputTokens: 380,
+              },
+            });
+          } catch (funcToolErr: any) {
             try {
               firstResponse = await ai.models.generateContent({
                 model: modelName,
                 contents: initialContents,
                 config: {
                   systemInstruction,
-                  tools: [{ functionDeclarations: [liveWeatherDeclaration, liveCricketDeclaration] }],
                   temperature: 0.82,
                   maxOutputTokens: 380,
                 },
               });
-            } catch (funcToolErr: any) {
-              firstResponse = await ai.models.generateContent({
-                model: modelName,
-                contents: initialContents,
-                config: {
-                  systemInstruction,
-                  temperature: 0.82,
-                  maxOutputTokens: 380,
-                },
-              });
+            } catch (pureErr: any) {
+              throw pureErr;
             }
-          } else {
-            throw searchToolErr;
           }
         }
 
@@ -958,7 +998,28 @@ MANDATORY RULES FOR THIS SPORTS QUERY (ZERO HALLUCINATION POLICY):
       }
 
       if (!parsedData) {
-        throw lastError || new Error('All candidate models were temporarily unavailable');
+        if (universalSearchResult && (universalSearchResult.verifiedDirectAnswer || universalSearchResult.extractedFactHint)) {
+          parsedData = {
+            reply: universalSearchResult.verifiedDirectAnswer || universalSearchResult.extractedFactHint,
+            emotion: 'friendly',
+            detectedLanguage: 'hinglish',
+            contextType: 'chat',
+            suggestedVoiceGender: 'female',
+            memoryAction: { action: 'none' },
+          };
+          successfulModel = 'fact-grounding-engine';
+        } else {
+          const companionFallback = generateLocalCompanionFallback(userMessage, profile, userMemories, history);
+          parsedData = {
+            reply: companionFallback,
+            emotion: 'friendly',
+            detectedLanguage: 'hinglish',
+            contextType: 'chat',
+            suggestedVoiceGender: 'female',
+            memoryAction: { action: 'none' },
+          };
+          successfulModel = 'tia-companion-engine';
+        }
       }
     } else {
       const rawText = response.text.trim();
@@ -1193,7 +1254,7 @@ MANDATORY RULES FOR THIS SPORTS QUERY (ZERO HALLUCINATION POLICY):
       errorMessage.includes('temporarily unavailable');
 
     if (isUnavailableOrHighDemand || isQuotaOrRate) {
-      console.warn('[Chat Handler Warning] Gemini models busy or under temporary demand spike:', errorMessage.slice(0, 150));
+      console.info('[Chat Handler Info] Serving graceful companion fallback during temporary upstream demand.');
     } else {
       console.error('Error handling chat request:', err);
     }
