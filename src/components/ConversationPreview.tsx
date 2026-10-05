@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import type { Message, AssistantState } from '../types';
 import { Volume2, VolumeX, Copy, Check, Sparkles, User, History, X, Globe, ExternalLink } from 'lucide-react';
 import { getEmotionVisualMeta } from '../services/speechSynthesis';
+import { normalizeAssistantResponse } from '../utils/responseNormalizer';
 
 interface ConversationPreviewProps {
   lastMessage: Message | null;
@@ -155,7 +156,12 @@ export const ConversationPreview: React.FC<ConversationPreviewProps> = ({
                     <button
                       type="button"
                       id="btn-replay-speech"
-                      onClick={() => onReplay(lastMessage)}
+                      onClick={() =>
+                        onReplay({
+                          ...lastMessage,
+                          content: normalizeAssistantResponse(lastMessage.content),
+                        })
+                      }
                       className="p-1 rounded-md text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 text-xs flex items-center space-x-1 transition-colors cursor-pointer"
                       title="Replay Tia's voice with emotion"
                     >
@@ -168,7 +174,9 @@ export const ConversationPreview: React.FC<ConversationPreviewProps> = ({
                   <button
                     type="button"
                     id="btn-copy-answer"
-                    onClick={() => handleCopy(lastMessage.content)}
+                    onClick={() =>
+                      handleCopy(normalizeAssistantResponse(lastMessage.content))
+                    }
                     className="p-1 rounded-md text-slate-400 hover:text-slate-200 hover:bg-white/5 transition-colors cursor-pointer"
                     title="Copy answer"
                   >
@@ -196,7 +204,7 @@ export const ConversationPreview: React.FC<ConversationPreviewProps> = ({
 
               {/* Spoken Text */}
               <p className="text-sm sm:text-base leading-relaxed font-normal whitespace-pre-line">
-                {lastMessage.content}
+                {normalizeAssistantResponse(lastMessage.content)}
               </p>
 
               {/* Verified Web Sources (if live search was used) */}
@@ -292,7 +300,12 @@ export const ConversationPreview: React.FC<ConversationPreviewProps> = ({
                         {!isUser && (
                           <button
                             type="button"
-                            onClick={() => onReplay(msg)}
+                            onClick={() =>
+                              onReplay({
+                                ...msg,
+                                content: normalizeAssistantResponse(msg.content),
+                              })
+                            }
                             className="p-1 hover:text-rose-400 text-slate-400 cursor-pointer"
                             title="Replay this response"
                           >
@@ -301,7 +314,9 @@ export const ConversationPreview: React.FC<ConversationPreviewProps> = ({
                         )}
                       </div>
                     </div>
-                    <p className="leading-relaxed whitespace-pre-line">{msg.content}</p>
+                    <p className="leading-relaxed whitespace-pre-line">
+                      {isUser ? msg.content : normalizeAssistantResponse(msg.content)}
+                    </p>
                   </div>
                 );
               })}

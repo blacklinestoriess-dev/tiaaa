@@ -29,6 +29,16 @@ import {
   logFactPipelineDebug,
   type GroundedSearchResult,
 } from './factVerificationEngine.ts';
+import {
+  parseAssistantResponse,
+  normalizeAssistantResponse,
+  isValidAssistantResponse,
+} from './responseNormalizer.ts';
+import {
+  resolveVerifiedFactObject,
+  lockAndValidateAssistantAnswer,
+  type VerifiedFactObject,
+} from './universalFactEngine.ts';
 
 export interface GroundingSource {
   title: string;
@@ -421,44 +431,7 @@ Output strictly as a valid JSON object:
 `;
 }
 
-function parseAssistantResponse(rawText: string) {
-  let cleaned = rawText.trim();
-  if (cleaned.startsWith('```json')) {
-    cleaned = cleaned.replace(/^```json\s*/, '').replace(/\s*```$/, '');
-  } else if (cleaned.startsWith('```')) {
-    cleaned = cleaned.replace(/^```\s*/, '').replace(/\s*```$/, '');
-  }
-
-  const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
-  if (jsonMatch) {
-    cleaned = jsonMatch[0];
-  }
-
-  try {
-    const parsed = JSON.parse(cleaned);
-    return {
-      reply: parsed.reply || 'Haan boss, sun rahi hoon! Kuch poochna tha?',
-      emotion: parsed.emotion || 'playful',
-      detectedLanguage: parsed.detectedLanguage || 'hinglish',
-      contextType: parsed.contextType || 'chat',
-      suggestedVoiceGender: parsed.suggestedVoiceGender || 'female',
-      memoryAction: parsed.memoryAction || { action: 'none' },
-    };
-  } catch {
-    const sanitized = rawText
-      .replace(/[\*\#\`\_]/g, '')
-      .replace(/\s+/g, ' ')
-      .trim();
-    return {
-      reply: sanitized || 'Haan boss, sun rahi hoon! Kuch poochna tha?',
-      emotion: 'playful',
-      detectedLanguage: 'hinglish',
-      contextType: 'chat',
-      suggestedVoiceGender: 'female',
-      memoryAction: { action: 'none' },
-    };
-  }
-}
+// parseAssistantResponse is imported from ./responseNormalizer.ts
 
 export async function handleChatRequest(req: IncomingMessage, res: ServerResponse) {
   if (req.method !== 'POST') {
@@ -577,11 +550,22 @@ export async function handleChatRequest(req: IncomingMessage, res: ServerRespons
       return aCooldown - bCooldown;
     });
 
+    let capturedSources: GroundingSource[] = [];
+
+    // Step 0: CANONICAL UNIVERSAL FACTUAL ACCURACY ENGINE
+    // Evaluates exact question scope, domain, fresh ground truth, and builds structured verified facts
+    const verifiedFactObj: VerifiedFactObject = await resolveVerifiedFactObject(userMessage, history);
+    if (verifiedFactObj.verified && verifiedFactObj.sources.length > 0) {
+      capturedSources = [
+        ...verifiedFactObj.sources,
+        ...capturedSources.filter((s) => !verifiedFactObj.sources.some((v) => v.url === s.url)),
+      ];
+    }
+
     const weatherInquiry = detectWeatherInquiry(userMessage);
     const sportsInquiry = detectSportsInquiry(userMessage, history);
-    let capturedSources: GroundingSource[] = [];
     let sportsResult: SportsResult | null = null;
-    if (sportsInquiry.isSports) {
+    if (sportsInquiry.isSports && !verifiedFactObj.verified) {
       try {
         sportsResult = await getLiveCricketSchedule(sportsInquiry, new Date());
         if (sportsResult.sources && sportsResult.sources.length > 0) {
@@ -626,8 +610,35 @@ export async function handleChatRequest(req: IncomingMessage, res: ServerRespons
 
     const initialContents = [...contents];
 
+    // Priority 1: Inject Canonical Verified Fact Object
+    if (verifiedFactObj.verified && verifiedFactObj.directFactualAnswer) {
+      initialContents.push({
+        role: 'user',
+        parts: [
+          {
+            text: `[CANONICAL VERIFIED TRUTH (ZERO HALLUCINATION MANDATE)]:
+Domain: ${verifiedFactObj.domain}
+Scope: ${verifiedFactObj.scope}
+Competition: ${verifiedFactObj.competition || 'N/A'}
+Entity: ${verifiedFactObj.entity || 'N/A'}
+Current Date: ${verifiedFactObj.currentDate}
+Event Status: ${verifiedFactObj.eventStatus}
+Structured Facts: ${JSON.stringify(verifiedFactObj.facts)}
+Authoritative Source: ${verifiedFactObj.sources[0]?.title || 'Official Tournament Record'}
+Exact Factual Truth to communicate:
+"${verifiedFactObj.directFactualAnswer}"
+
+MANDATORY RULES:
+1. The structured facts above are the LOCKED TRUTH. You must NOT alter any numbers, scores, medal counts, names, venues, dates, or winners.
+2. Deliver this exact factual conclusion in Tia's natural, witty, warm companion Hinglish personality.
+3. Output strictly as valid JSON.`,
+          },
+        ],
+      });
+    }
+
     // Inject Universal Grounding Context if retrieved
-    if (universalSearchResult && universalSearchResult.summaryContext) {
+    if (universalSearchResult && universalSearchResult.summaryContext && !verifiedFactObj.verified) {
       const isNextBrics =
         constraints.topic === 'brics' &&
         (/\b(agla|agle|next|upcoming|future|2027)\b/i.test(userMessage) || constraints.timeFrame === '2027');
@@ -731,7 +742,7 @@ MANDATORY RULES FOR THIS SPORTS QUERY (ZERO HALLUCINATION POLICY):
               tools: initialTools,
               toolConfig: { includeServerSideToolInvocations: true },
               temperature: 0.82,
-              maxOutputTokens: 380,
+              maxOutputTokens: 1024,
             },
           });
         } catch (searchToolErr: any) {
@@ -758,7 +769,7 @@ MANDATORY RULES FOR THIS SPORTS QUERY (ZERO HALLUCINATION POLICY):
                 systemInstruction,
                 tools: [{ functionDeclarations: [liveWeatherDeclaration, liveCricketDeclaration] }],
                 temperature: 0.82,
-                maxOutputTokens: 380,
+                maxOutputTokens: 1024,
               },
             });
           } catch (funcToolErr: any) {
@@ -769,7 +780,7 @@ MANDATORY RULES FOR THIS SPORTS QUERY (ZERO HALLUCINATION POLICY):
                 config: {
                   systemInstruction,
                   temperature: 0.82,
-                  maxOutputTokens: 380,
+                  maxOutputTokens: 1024,
                 },
               });
             } catch (pureErr: any) {
@@ -833,7 +844,7 @@ MANDATORY RULES FOR THIS SPORTS QUERY (ZERO HALLUCINATION POLICY):
             config: {
               systemInstruction,
               temperature: 0.82,
-              maxOutputTokens: 350,
+              maxOutputTokens: 1024,
               responseMimeType: 'application/json',
             },
           });
@@ -878,7 +889,7 @@ MANDATORY RULES FOR THIS SPORTS QUERY (ZERO HALLUCINATION POLICY):
             config: {
               systemInstruction,
               temperature: 0.82,
-              maxOutputTokens: 350,
+              maxOutputTokens: 1024,
               responseMimeType: 'application/json',
             },
           });
@@ -922,7 +933,7 @@ MANDATORY RULES FOR THIS SPORTS QUERY (ZERO HALLUCINATION POLICY):
             config: {
               systemInstruction,
               temperature: 0.82,
-              maxOutputTokens: 350,
+              maxOutputTokens: 1024,
               responseMimeType: 'application/json',
             },
           });
@@ -1024,11 +1035,51 @@ MANDATORY RULES FOR THIS SPORTS QUERY (ZERO HALLUCINATION POLICY):
     } else {
       const rawText = response.text.trim();
       parsedData = parseAssistantResponse(rawText);
+
+      // Verify that parsedData.reply is non-empty and valid; if truncated or malformed, attempt one clean text retry
+      if (!isValidAssistantResponse(parsedData.reply)) {
+        try {
+          console.info('[Chat Pipeline] Assistant reply was invalid or malformed, executing single plain-text retry...');
+          const retryResponse = await ai.models.generateContent({
+            model: successfulModel,
+            contents: [
+              ...contents,
+              {
+                role: 'user',
+                parts: [
+                  {
+                    text: 'Please answer the question directly in 1 to 2 spoken sentences in friendly conversational Hinglish/Hindi or English. Answer as plain text only. Do NOT use JSON.',
+                  },
+                ],
+              },
+            ],
+            config: {
+              systemInstruction,
+              temperature: 0.7,
+              maxOutputTokens: 1024,
+            },
+          });
+          if (retryResponse && retryResponse.text && retryResponse.text.trim()) {
+            parsedData.reply = normalizeAssistantResponse(retryResponse.text.trim());
+          }
+        } catch (retryErr) {
+          console.warn('[Chat Pipeline] Plain-text retry error:', retryErr);
+        }
+      }
+
+      // If still invalid after retry, serve a friendly companion message
+      if (!isValidAssistantResponse(parsedData.reply)) {
+        parsedData.reply = 'Boss, response thoda glitch ho gaya 😅 Ek baar phir poochho.';
+      }
     }
+
+    // Ensure parsedData.reply is always normalized to pure text before any domain sanitizers
+    parsedData.reply = normalizeAssistantResponse(parsedData.reply);
 
     // Apply Sports Verification & Fact-Checking Layer to eliminate hallucinations
     if (sportsInquiry.isSports && sportsResult) {
       parsedData.reply = verifyAndSanitizeSportsReply(parsedData.reply, sportsInquiry, sportsResult);
+      parsedData.reply = normalizeAssistantResponse(parsedData.reply);
       if (sportsResult.sources && sportsResult.sources.length > 0) {
         capturedSources = [
           ...sportsResult.sources,
@@ -1088,6 +1139,17 @@ MANDATORY RULES FOR THIS SPORTS QUERY (ZERO HALLUCINATION POLICY):
         answerSourceType: 'FALLBACK',
       }
     );
+
+    // CANONICAL FACT LOCK VALIDATION: Compare generated answer with verifiedFactObj and enforce exact truth
+    if (verifiedFactObj.verified) {
+      parsedData.reply = lockAndValidateAssistantAnswer(parsedData.reply, verifiedFactObj);
+    }
+
+    // Final canonical safety pass: absolutely guarantee parsedData.reply is clean plain text
+    parsedData.reply = normalizeAssistantResponse(parsedData.reply);
+    if (!isValidAssistantResponse(parsedData.reply)) {
+      parsedData.reply = 'Boss, response thoda glitch ho gaya 😅 Ek baar phir poochho.';
+    }
 
     // Canonical Structured Diagnostic Factual Logging
     const eventDateResolved =

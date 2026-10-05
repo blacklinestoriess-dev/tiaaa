@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 import os from 'os';
+import { normalizeAssistantResponse } from './responseNormalizer.ts';
 
 export interface UserRecord {
   id: string;
@@ -346,6 +347,25 @@ export function loadDatabase(): DatabaseSchema {
           p.age = calculateAge(p.date_of_birth);
           return p;
         });
+
+        // Ensure all historical assistant conversation messages are normalized and never contain raw JSON
+        if (Array.isArray(parsed.conversations)) {
+          parsed.conversations = parsed.conversations.map((conv: any) => {
+            if (conv && Array.isArray(conv.messages)) {
+              conv.messages = conv.messages.map((m: any) => {
+                if (m && m.role === 'assistant' && typeof m.content === 'string') {
+                  const clean = normalizeAssistantResponse(m.content);
+                  if (clean !== m.content) {
+                    m.content = clean;
+                    modified = true;
+                  }
+                }
+                return m;
+              });
+            }
+            return conv;
+          });
+        }
 
         const schema = parsed as DatabaseSchema;
         cachedDb = schema;

@@ -24,6 +24,7 @@
 
 import type { GroundingSource } from './chatHandler.ts';
 import { fetchLiveIccRankings, getIndiaCurrentDate, OFFICIAL_INDIA_SCHEDULE } from './sportsService.ts';
+import { normalizeAssistantResponse } from './responseNormalizer.ts';
 
 export type QuestionClassification =
   | 'STABLE_KNOWLEDGE' // Evergreen facts (e.g. speed of light, Constitution adoption date)
@@ -365,7 +366,12 @@ export function extractQueryConstraints(
   let position: number | undefined;
 
   // 1. Topic & Entity detection
-  if (/\b(brics|summit)\b/i.test(lower)) {
+  if (/\b(asian\s*games|एशियाई\s*खेल|asiad)\b/i.test(lower)) {
+    topic = 'asian_games';
+    entity = 'Asian Games 2026';
+    timeFrame = '2026';
+    explicitOverrides.push('topic', 'entity', 'timeFrame');
+  } else if (/\b(brics|summit)\b/i.test(lower)) {
     topic = 'brics';
     const isNext = /\b(agla|agle|next|upcoming|future|2027)\b/i.test(lower);
     if (isNext) {
@@ -1223,7 +1229,7 @@ export function validateAndSanitizeFact(
   constraints: QueryConstraints,
   searchResult: GroundedSearchResult
 ): string {
-  let sanitized = reply;
+  let sanitized = normalizeAssistantResponse(reply);
 
   // Rule 1: For BRICS Summits
   if (constraints.topic === 'brics' || /brics/i.test(constraints.rawQuery)) {

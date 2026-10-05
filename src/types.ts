@@ -88,6 +88,7 @@ export interface VoiceSelectionCriteria {
   contextType?: ContextType;
   preferredGender?: 'female' | 'male' | 'any';
   userPreferenceURI?: string;
+  text?: string;
 }
 
 // Lightweight Personal User Profile (Stored ONLY in browser localStorage)

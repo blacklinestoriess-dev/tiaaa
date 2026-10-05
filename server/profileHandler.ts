@@ -13,6 +13,7 @@ import {
   loadDatabase,
 } from './db.ts';
 import { extractAuthToken } from './authHandler.ts';
+import { normalizeAssistantResponse } from './responseNormalizer.ts';
 
 function readRequestBody(req: IncomingMessage): Promise<any> {
   return new Promise((resolve) => {
@@ -200,18 +201,25 @@ export async function handleConversationRequest(req: IncomingMessage, res: Serve
   // GET /api/conversations -> fetch user's isolated conversation history
   if (method === 'GET') {
     const conv = getUserConversation(userId);
-    const msgs = conv ? conv.messages : [];
+    const msgs = (conv ? conv.messages : []).map((m) => ({
+      ...m,
+      content: m.role === 'assistant' ? normalizeAssistantResponse(m.content) : m.content,
+    }));
     return sendJson(res, 200, {
       success: true,
       messages: msgs,
-      conversations: conv ? [conv] : [],
+      conversations: conv ? [{ ...conv, messages: msgs }] : [],
     });
   }
 
   // POST /api/conversations -> save user's conversation history
   if (method === 'POST') {
     const body = await readRequestBody(req);
-    const messages = Array.isArray(body.messages) ? body.messages : [];
+    const rawMessages = Array.isArray(body.messages) ? body.messages : [];
+    const messages = rawMessages.map((m: any) => ({
+      ...m,
+      content: m.role === 'assistant' ? normalizeAssistantResponse(m.content) : m.content,
+    }));
     const conv = saveUserConversation(userId, messages);
     return sendJson(res, 200, {
       success: true,

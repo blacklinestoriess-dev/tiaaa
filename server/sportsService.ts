@@ -8,6 +8,7 @@
 
 import { FunctionDeclaration, Type } from '@google/genai';
 import type { GroundingSource } from './chatHandler.ts';
+import { normalizeAssistantResponse } from './responseNormalizer.ts';
 
 export interface CricketMatch {
   teams: string;
@@ -901,7 +902,13 @@ export function detectSportsInquiry(
   const cricketKeywords =
     /(?:cricket|match|matches|t20|t20i|twenty20|odi|test|score|scoreboard|wicket|wickets|innings|bcci|icc|cricbuzz|cricinfo|afghanistan|afg|india|ind|opener|openers|playing\s*(?:xi|11)|captain|captaincy|vice\s*captain|ranking|rankings|rank|ranked|ranks|batsman|batsmen|batter|batters|batting|bowler|bowlers|bowling|all-rounder|allrounder|runs|series|toss|gendbaaz|ballebaaz|क्रिकेट|मैच|टेस्ट|वनडे|ओडीआई|टी20|टी-20|बॉलर|गेंदबाज|बल्लेबाज|बैटर|विकेट|रैंकिंग|रैंक|कप्तान|ओपनर|स्क्वाड)/i;
 
-  const isSports = Boolean(rankingIntent) || cricketKeywords.test(text);
+  // If the query is asking about overall medal tallies in Asian Games / Olympics, do NOT route to cricket schedule!
+  const isMedalTally =
+    /\b(asian\s*games|एशियाई\s*खेल|asiad|olympics|commonwealth)\b/i.test(text) &&
+    /\b(gold|silver|bronze|medal|medals|tally|padak|पदक|गोल्ड)\b/i.test(text) &&
+    !/\b(cricket|क्रिकेट)\b/i.test(text);
+
+  const isSports = (Boolean(rankingIntent) || cricketKeywords.test(text)) && !isMedalTally;
 
   if (!isSports) {
     return {
@@ -1704,11 +1711,12 @@ export function verifyAndSanitizeSportsReply(
   inquiry: SportsInquiry,
   result: SportsResult
 ): string {
+  const normalizedReply = normalizeAssistantResponse(modelReply);
   if (!inquiry.isSports || !result) {
-    return modelReply;
+    return normalizedReply;
   }
 
-  const replyLower = (modelReply || '').toLowerCase();
+  const replyLower = normalizedReply.toLowerCase();
 
   // Dynamic Rule 1: Ranking Verification
   if (inquiry.intent === 'ranking' && result.rankingData) {

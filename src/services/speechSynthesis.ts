@@ -3,6 +3,7 @@ import type {
   TiaEmotion,
   VoiceSelectionCriteria,
 } from '../types';
+import { normalizeAssistantResponse } from '../utils/responseNormalizer';
 
 /**
  * Acoustic prosody profiles for each emotion.
@@ -212,8 +213,12 @@ export function normalizeDecimalsForSpeech(text: string): string {
 export function cleanTextForSpeech(text: string): string {
   if (!text) return '';
 
+  // Canonical safety: Strip any JSON wrappers, double-encoded JSON, or residual {"reply": wrappers
+  let cleaned = normalizeAssistantResponse(text);
+  if (!cleaned) return '';
+
   // 1. Initial cleanup of markdown blocks and list markers
-  let cleaned = text
+  cleaned = cleaned
     // Remove code blocks
     .replace(/```[\s\S]*?```/g, '')
     // Remove inline code
@@ -478,7 +483,17 @@ export function getAvailableVoices(): SpeechVoiceOption[] {
 }
 
 /**
+ * Detects whether the given text contains any Devanagari Unicode characters (U+0900 to U+097F).
+ * Covers all Hindi consonants, vowels, matras, nuktas, virama, and digits.
+ */
+export function hasDevanagariScript(text: string): boolean {
+  if (!text) return false;
+  return /[\u0900-\u097F]/.test(text);
+}
+
+/**
  * Intelligently chooses the best voice instance based on:
+ * - Actual text script (Devanagari vs Latin)
  * - Language (Hindi, Hinglish, English)
  * - Emotion & conversation context
  * - Gender appropriateness (default female for Tia)
@@ -489,23 +504,30 @@ export function selectContextualVoice(
   criteria: VoiceSelectionCriteria,
   availableVoices?: SpeechSynthesisVoice[]
 ): { voice: SpeechSynthesisVoice | null; voiceLabel: string } {
-  if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
+  const hasProvidedVoices = Boolean(availableVoices && availableVoices.length > 0);
+  if (!hasProvidedVoices && (typeof window === 'undefined' || !('speechSynthesis' in window))) {
     return { voice: null, voiceLabel: 'Tia Voice' };
   }
 
-  const voices = availableVoices && availableVoices.length > 0
-    ? availableVoices
+  const voices = hasProvidedVoices
+    ? availableVoices!
     : window.speechSynthesis.getVoices();
 
   if (voices.length === 0) {
     return { voice: null, voiceLabel: 'Tia Voice' };
   }
 
+  const textHasDevanagari = criteria.text ? hasDevanagariScript(criteria.text) : false;
+
   // 1. If user explicitly locked a voice in Settings and autoVoiceSelection is disabled
   if (criteria.userPreferenceURI) {
     const lockedMatch = voices.find((v) => v.voiceURI === criteria.userPreferenceURI);
+    // Never allow an English voice to read Devanagari Hindi text even if locked,
+    // to strictly prevent pronouncing Devanagari words like 'ही' as English 'Hi'
     if (lockedMatch && isAllowedTiaVoice(lockedMatch)) {
-      return { voice: lockedMatch, voiceLabel: lockedMatch.name };
+      if (!textHasDevanagari || isHindiVoice(lockedMatch)) {
+        return { voice: lockedMatch, voiceLabel: lockedMatch.name };
+      }
     }
   }
 
@@ -539,6 +561,7 @@ export function selectContextualVoice(
 
     const isMale =
       nameLower.includes('male') ||
+      nameLower.includes('man') ||
       nameLower.includes('prabhat') ||
       nameLower.includes('ravi') ||
       nameLower.includes('david') ||
@@ -550,19 +573,25 @@ export function selectContextualVoice(
       nameLower.includes('neural') ||
       nameLower.includes('google');
 
-    // Language suitability scoring
-    if (detectedLanguage === 'hindi') {
-      if (isHindi) score += 100;
+    // Language & Script suitability scoring:
+    // When text contains Devanagari script, strongly prefer native Hindi voice (lang: hi-IN)
+    // and heavily penalize English voices so Devanagari words are NEVER pronounced with English phonetics.
+    if (textHasDevanagari) {
+      if (isHindi) score += 200;
+      else if (isIndianEn) score -= 150;
+      else if (isGeneralEn) score -= 200;
+    } else if (detectedLanguage === 'hindi') {
+      if (isHindi) score += 120;
       else if (isIndianEn) score += 50;
       else if (isGeneralEn) score += 20;
     } else if (detectedLanguage === 'english') {
       if (isIndianEn) score += 100;
       else if (isGeneralEn) score += 70;
-      else if (isHindi) score += 40;
+      else if (isHindi) score += 30;
     } else {
-      // Hinglish: Indian English and Hindi voices excel at mixed phrasing
+      // Hinglish in Latin script: Indian English voice is ideal for natural Indian English & Latin Hindi slang
       if (isIndianEn) score += 100;
-      else if (isHindi) score += 95;
+      else if (isHindi) score += 75;
       else if (isGeneralEn) score += 30;
     }
 
@@ -596,17 +625,26 @@ export function selectContextualVoice(
 
   // Safe fallback hierarchy: strictly limited to isAllowedTiaVoice
   if (!bestVoice) {
-    bestVoice =
-      candidateVoices.find((v) => isIndianEnglishVoice(v)) ||
-      candidateVoices.find((v) => isHindiVoice(v)) ||
-      candidateVoices.find((v) => isGeneralEnglishVoice(v) && (v.name.toLowerCase().includes('female') || v.name.toLowerCase().includes('zira'))) ||
-      candidateVoices.find((v) => isGeneralEnglishVoice(v)) ||
-      candidateVoices.find((v) => v.default) ||
-      candidateVoices[0] ||
-      null;
+    if (textHasDevanagari) {
+      bestVoice =
+        candidateVoices.find((v) => isHindiVoice(v)) ||
+        candidateVoices.find((v) => isIndianEnglishVoice(v)) ||
+        candidateVoices.find((v) => isGeneralEnglishVoice(v)) ||
+        candidateVoices[0] ||
+        null;
+    } else {
+      bestVoice =
+        candidateVoices.find((v) => isIndianEnglishVoice(v)) ||
+        candidateVoices.find((v) => isHindiVoice(v)) ||
+        candidateVoices.find((v) => isGeneralEnglishVoice(v) && (v.name.toLowerCase().includes('female') || v.name.toLowerCase().includes('zira'))) ||
+        candidateVoices.find((v) => isGeneralEnglishVoice(v)) ||
+        candidateVoices.find((v) => v.default) ||
+        candidateVoices[0] ||
+        null;
+    }
   }
 
-  const voiceLabel = bestVoice ? bestVoice.name : 'Tia Voice';
+  const voiceLabel = bestVoice ? bestVoice.name : (textHasDevanagari ? 'Tia Hindi (hi-IN)' : 'Tia Voice');
 
   return {
     voice: bestVoice,
@@ -718,17 +756,37 @@ export function speakEmotionally({
     // Keep reference in module-level set to prevent GC collection during speech playback
     activeUtterancesSet.add(utterance);
 
+    // Resolve active voice with asynchronous fallback if voices loaded late
+    let activeVoice = voice;
+    if (!activeVoice && typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      const liveVoices = window.speechSynthesis.getVoices();
+      if (liveVoices.length > 0) {
+        const resolved = selectContextualVoice(
+          {
+            emotion,
+            detectedLanguage,
+            text: cleaned,
+          },
+          liveVoices
+        );
+        activeVoice = resolved.voice;
+      }
+    }
+
     // Configure voice and language
-    if (voice && isAllowedTiaVoice(voice)) {
-      utterance.voice = voice;
-      if (voice.lang && !isDisallowedRegionalVoice(voice)) {
-        utterance.lang = voice.lang;
+    const segHasDevanagari = hasDevanagariScript(segText);
+    if (activeVoice && isAllowedTiaVoice(activeVoice)) {
+      utterance.voice = activeVoice;
+      if (segHasDevanagari || isHindiVoice(activeVoice)) {
+        utterance.lang = 'hi-IN';
+      } else if (activeVoice.lang && !isDisallowedRegionalVoice(activeVoice)) {
+        utterance.lang = activeVoice.lang;
       } else {
         utterance.lang = detectedLanguage === 'hindi' ? 'hi-IN' : 'en-IN';
       }
     } else {
       // Default language tag if no voice instance attached
-      if (detectedLanguage === 'hindi') {
+      if (segHasDevanagari || detectedLanguage === 'hindi') {
         utterance.lang = 'hi-IN';
       } else if (detectedLanguage === 'english') {
         utterance.lang = 'en-IN';

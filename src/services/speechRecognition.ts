@@ -104,6 +104,71 @@ export interface SpeechRecognitionCallbacks {
 // Module-level tracker to strictly enforce ONE active recognition session across the tab
 let globalActiveController: SpeechRecognitionController | null = null;
 
+/**
+ * Merges an incoming speech transcript chunk with an existing accumulated transcript.
+ * Solves mobile Chrome SpeechRecognition accumulation bugs where:
+ * 1. Interim results or successive final events deliver cumulative superset strings
+ *    (e.g., existing: "Patna ka", incoming: "Patna ka temperature")
+ * 2. Duplicate final results are re-sent by mobile recognition engines
+ * 3. Overlapping boundary words occur between recognition chunks
+ *    (e.g., existing: "Patna ka", incoming: "ka temperature")
+ * 4. Separate non-overlapping continuation chunks occur
+ *    (e.g., existing: "Patna ka", incoming: "temperature")
+ */
+export function mergeTranscriptChunks(base: string, incoming: string): string {
+  const b = (base || '').trim();
+  const inc = (incoming || '').trim();
+
+  if (!b) return inc;
+  if (!inc) return b;
+
+  const bLower = b.toLowerCase();
+  const incLower = inc.toLowerCase();
+
+  // 1. Exact identical match
+  if (bLower === incLower) {
+    return b;
+  }
+
+  // 2. Incoming is an expansion/superset starting with base (common on mobile Chrome)
+  // E.g. base: "Patna ka", incoming: "Patna ka temperature" -> return "Patna ka temperature"
+  if (incLower.startsWith(bLower)) {
+    return inc;
+  }
+
+  // 3. Base already contains or ends with incoming (incoming is a stale/duplicate prefix or sub-phrase)
+  // E.g. base: "Patna ka temperature", incoming: "Patna ka" -> return "Patna ka temperature"
+  if (bLower.endsWith(incLower) || bLower.includes(incLower)) {
+    return b;
+  }
+
+  // 4. Overlapping boundary words:
+  // E.g. base: "Patna ka", incoming: "ka temperature"
+  // Find the longest suffix of base words that matches the prefix of incoming words
+  const bWords = b.split(/\s+/);
+  const incWords = inc.split(/\s+/);
+
+  const maxOverlap = Math.min(bWords.length, incWords.length);
+  let overlapLength = 0;
+
+  for (let len = maxOverlap; len > 0; len--) {
+    const bSuffix = bWords.slice(-len).map((w) => w.toLowerCase()).join(' ');
+    const incPrefix = incWords.slice(0, len).map((w) => w.toLowerCase()).join(' ');
+    if (bSuffix === incPrefix) {
+      overlapLength = len;
+      break;
+    }
+  }
+
+  if (overlapLength > 0) {
+    const remainingIncoming = incWords.slice(overlapLength).join(' ');
+    return remainingIncoming ? `${b} ${remainingIncoming}` : b;
+  }
+
+  // 5. Completely separate non-overlapping continuation chunk
+  return `${b} ${inc}`;
+}
+
 export function createSpeechRecognizer(
   langPref: LanguagePreference,
   callbacks: SpeechRecognitionCallbacks,
@@ -131,14 +196,26 @@ export function createSpeechRecognizer(
 
     let isRunning = false;
     let isAborting = false;
+    let accumulatedFinal = '';
+    let highestFinalIndex = -1;
+    let lastEmittedTranscript = '';
+
+    const resetSessionTranscript = () => {
+      accumulatedFinal = '';
+      highestFinalIndex = -1;
+      lastEmittedTranscript = '';
+    };
 
     recognition.onstart = () => {
       isRunning = true;
       isAborting = false;
+      resetSessionTranscript();
       callbacks.onStart?.();
     };
 
     recognition.onresult = (event: ISpeechRecognitionEvent) => {
+      if (isAborting) return;
+
       // 1. Inspect each NEW SpeechRecognition result independently with all recognition alternatives (for wake-word)
       if (callbacks.onNewResult) {
         for (let i = event.resultIndex; i < event.results.length; ++i) {
@@ -164,33 +241,44 @@ export function createSpeechRecognizer(
       }
 
       // 2. Transcript calculation for question listeners:
-      // Derive the current utterance cleanly from event.results.
-      // Reconstruct final segments and interim segments in real-time from the browser results list.
-      // This prevents cross-event repetitions or runaway duplicate concatenations.
+      // Strictly separates final chunks from interim hypothesis and prevents duplicate concatenations.
       if (callbacks.onResult) {
-        let finalAccumulator = '';
-        let interimAccumulator = '';
         let hasNewFinal = false;
 
-        for (let i = 0; i < event.results.length; ++i) {
+        // Process newly finalized result indices only (never reprocess previously finalized indices)
+        const startFinalIdx = Math.max(event.resultIndex, highestFinalIndex + 1);
+        for (let i = startFinalIdx; i < event.results.length; ++i) {
           const item = event.results[i];
-          if (!item || !item[0]) continue;
-          const text = (item[0].transcript || '').trim();
-          if (!text) continue;
-
-          if (item.isFinal) {
-            hasNewFinal = true;
-            finalAccumulator = finalAccumulator ? `${finalAccumulator} ${text}` : text;
-          } else {
-            interimAccumulator = interimAccumulator ? `${interimAccumulator} ${text}` : text;
+          if (item && item.isFinal && item[0]) {
+            const text = (item[0].transcript || '').trim();
+            if (text) {
+              accumulatedFinal = mergeTranscriptChunks(accumulatedFinal, text);
+              hasNewFinal = true;
+            }
+            highestFinalIndex = i;
           }
         }
 
-        const currentUtterance = (
-          finalAccumulator + (interimAccumulator ? (finalAccumulator ? ' ' : '') + interimAccumulator : '')
+        // Process current interim hypothesis from the current event
+        let currentInterim = '';
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+          const item = event.results[i];
+          if (item && !item.isFinal && item[0]) {
+            const text = (item[0].transcript || '').trim();
+            if (text) {
+              currentInterim = mergeTranscriptChunks(currentInterim, text);
+            }
+          }
+        }
+
+        // Combine finalized transcript with the active interim hypothesis
+        const currentUtterance = (currentInterim
+          ? mergeTranscriptChunks(accumulatedFinal, currentInterim)
+          : accumulatedFinal
         ).trim();
 
-        if (currentUtterance) {
+        if (currentUtterance && currentUtterance !== lastEmittedTranscript) {
+          lastEmittedTranscript = currentUtterance;
           callbacks.onResult(currentUtterance, hasNewFinal);
         }
       }
@@ -241,6 +329,7 @@ export function createSpeechRecognizer(
           }
         }
         globalActiveController = controller;
+        resetSessionTranscript();
 
         const attemptStart = (retriesLeft = 2) => {
           try {
@@ -262,6 +351,10 @@ export function createSpeechRecognizer(
       stop: () => {
         try {
           isRunning = false;
+          resetSessionTranscript();
+          if (globalActiveController === controller) {
+            globalActiveController = null;
+          }
           recognition.stop();
         } catch {
           // ignore
@@ -271,6 +364,10 @@ export function createSpeechRecognizer(
         try {
           isRunning = false;
           isAborting = true;
+          resetSessionTranscript();
+          if (globalActiveController === controller) {
+            globalActiveController = null;
+          }
           // Detach listeners immediately to prevent delayed/zombie events
           recognition.onresult = null;
           recognition.onerror = null;
@@ -282,6 +379,10 @@ export function createSpeechRecognizer(
       },
       abortAsync: () => {
         return new Promise<void>((resolve) => {
+          resetSessionTranscript();
+          if (globalActiveController === controller) {
+            globalActiveController = null;
+          }
           if (!isRunning) {
             resolve();
             return;
@@ -317,7 +418,7 @@ export function createSpeechRecognizer(
       },
       isStarted: () => isRunning,
       resetUtterance: () => {
-        // Recognition results are derived per event; no-op
+        resetSessionTranscript();
       },
     };
 

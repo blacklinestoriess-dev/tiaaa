@@ -43,6 +43,11 @@ import {
   isStaleOrEchoTranscript,
 } from './services/wakeWord';
 import { parseApiResponse } from './utils/api';
+import {
+  normalizeAssistantResponse,
+  isValidAssistantResponse,
+  TIA_FALLBACK_GLITCH_MESSAGE,
+} from './utils/responseNormalizer';
 
 const DEFAULT_SETTINGS: TiaSettings = {
   voiceEnabled: true,
@@ -211,29 +216,37 @@ export default function App() {
         const loadedMsgs: Message[] = [];
         if (data?.messages && Array.isArray(data.messages) && data.messages.length > 0) {
           data.messages.forEach((m: any) => {
-            loadedMsgs.push({
-              id: m.id || `msg-${Date.now()}-${Math.random()}`,
-              role: m.role,
-              content: m.content,
-              timestamp: m.timestamp || Date.now(),
-              emotion: m.emotion,
-              voiceName: m.voiceName,
-              detectedLanguage: m.detectedLanguage,
-            });
+            const cleanContent =
+              m.role === 'assistant' ? normalizeAssistantResponse(m.content) : String(m.content || '');
+            if (m.role !== 'assistant' || isValidAssistantResponse(cleanContent)) {
+              loadedMsgs.push({
+                id: m.id || `msg-${Date.now()}-${Math.random()}`,
+                role: m.role,
+                content: cleanContent,
+                timestamp: m.timestamp || Date.now(),
+                emotion: m.emotion,
+                voiceName: m.voiceName,
+                detectedLanguage: m.detectedLanguage,
+              });
+            }
           });
         } else if (data?.conversations && Array.isArray(data.conversations) && data.conversations.length > 0) {
           data.conversations.forEach((conv: any) => {
             if (conv.messages && Array.isArray(conv.messages)) {
               conv.messages.forEach((m: any) => {
-                loadedMsgs.push({
-                  id: m.id || `msg-${Date.now()}-${Math.random()}`,
-                  role: m.role,
-                  content: m.content,
-                  timestamp: m.timestamp || Date.now(),
-                  emotion: m.emotion,
-                  voiceName: m.voiceName,
-                  detectedLanguage: m.detectedLanguage,
-                });
+                const cleanContent =
+                  m.role === 'assistant' ? normalizeAssistantResponse(m.content) : String(m.content || '');
+                if (m.role !== 'assistant' || isValidAssistantResponse(cleanContent)) {
+                  loadedMsgs.push({
+                    id: m.id || `msg-${Date.now()}-${Math.random()}`,
+                    role: m.role,
+                    content: cleanContent,
+                    timestamp: m.timestamp || Date.now(),
+                    emotion: m.emotion,
+                    voiceName: m.voiceName,
+                    detectedLanguage: m.detectedLanguage,
+                  });
+                }
               });
             }
           });
@@ -464,7 +477,7 @@ export default function App() {
       isSpeakingRef.current = true;
       setAssistantState('speaking');
 
-      // Contextual voice resolution
+      // Contextual voice resolution with script-aware text analysis
       const { voice, voiceLabel } = selectContextualVoice({
         emotion,
         detectedLanguage,
@@ -473,6 +486,7 @@ export default function App() {
         userPreferenceURI: settings.autoVoiceSelection
           ? undefined
           : settings.selectedVoiceURI,
+        text: textToSpeak,
       });
 
       setCurrentEmotion(emotion);
@@ -602,7 +616,10 @@ export default function App() {
             message: trimmed,
             history: messages.map((m) => ({
               role: m.role,
-              content: m.content,
+              content:
+                m.role === 'assistant'
+                  ? normalizeAssistantResponse(m.content)
+                  : m.content,
             })),
             funnyMode: settings.funnyMode,
             preferredLanguage: settings.languagePreference,
@@ -622,15 +639,17 @@ export default function App() {
           }
         }
 
-        const replyContent =
-          data.reply ||
-          "Arre, main abhi sun nahi paayi. Kya tum dobara pooch sakte ho?";
+        // Canonical normalization of Tia's response
+        let replyContent = normalizeAssistantResponse(data?.reply);
+        if (!isValidAssistantResponse(replyContent)) {
+          replyContent = TIA_FALLBACK_GLITCH_MESSAGE;
+        }
         const replyEmotion: TiaEmotion = data.emotion || 'neutral';
         const detectedLang = data.detectedLanguage || 'hinglish';
         const contextType = data.contextType || 'chat';
         const suggestedGender = data.suggestedVoiceGender || 'female';
 
-        // Pre-resolve voice name to label on message card
+        // Pre-resolve voice name to label on message card with script-aware analysis
         const { voiceLabel } = selectContextualVoice({
           emotion: replyEmotion,
           detectedLanguage: detectedLang,
@@ -639,6 +658,7 @@ export default function App() {
           userPreferenceURI: settings.autoVoiceSelection
             ? undefined
             : settings.selectedVoiceURI,
+          text: replyContent,
         });
 
         const tiaMsg: Message = {
@@ -769,14 +789,12 @@ export default function App() {
 
       // Reset state and ALWAYS clear transcript buffer when beginning new recognition session
       recognizerRef.current?.resetUtterance?.();
+      transcriptBufferRef.current = '';
+      setLiveTranscript('');
+      clearSpeechSilenceTimer();
       if (!isRestart) {
         clearFollowUpTimer();
         clearQuestionWaitTimer();
-        clearSpeechSilenceTimer();
-        transcriptBufferRef.current = '';
-        setLiveTranscript('');
-      } else {
-        clearSpeechSilenceTimer();
       }
       stopSpeech();
       setErrorMessage(null);
