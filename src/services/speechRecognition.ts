@@ -196,13 +196,12 @@ export function createSpeechRecognizer(
 
     let isRunning = false;
     let isAborting = false;
-    let accumulatedFinal = '';
-    let highestFinalIndex = -1;
     let lastEmittedTranscript = '';
+    // Track finalized text by result index to handle mobile Chrome index updates and prevent duplicate accumulation
+    const finalizedChunksByIndex = new Map<number, string>();
 
     const resetSessionTranscript = () => {
-      accumulatedFinal = '';
-      highestFinalIndex = -1;
+      finalizedChunksByIndex.clear();
       lastEmittedTranscript = '';
     };
 
@@ -245,21 +244,32 @@ export function createSpeechRecognizer(
       if (callbacks.onResult) {
         let hasNewFinal = false;
 
-        // Process newly finalized result indices only (never reprocess previously finalized indices)
-        const startFinalIdx = Math.max(event.resultIndex, highestFinalIndex + 1);
-        for (let i = startFinalIdx; i < event.results.length; ++i) {
+        // Process newly finalized result indices from event.resultIndex onwards
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
           const item = event.results[i];
           if (item && item.isFinal && item[0]) {
             const text = (item[0].transcript || '').trim();
             if (text) {
-              accumulatedFinal = mergeTranscriptChunks(accumulatedFinal, text);
-              hasNewFinal = true;
+              const previousForThisIndex = finalizedChunksByIndex.get(i);
+              if (previousForThisIndex !== text) {
+                finalizedChunksByIndex.set(i, text);
+                hasNewFinal = true;
+              }
             }
-            highestFinalIndex = i;
           }
         }
 
-        // Process current interim hypothesis from the current event
+        // Build consolidated finalized transcript across all sorted indices
+        const sortedIndices = Array.from(finalizedChunksByIndex.keys()).sort((a, b) => a - b);
+        let consolidatedFinal = '';
+        for (const idx of sortedIndices) {
+          const chunk = finalizedChunksByIndex.get(idx);
+          if (chunk) {
+            consolidatedFinal = mergeTranscriptChunks(consolidatedFinal, chunk);
+          }
+        }
+
+        // Process current interim hypothesis (strictly non-final items) from event.resultIndex onwards
         let currentInterim = '';
         for (let i = event.resultIndex; i < event.results.length; ++i) {
           const item = event.results[i];
@@ -271,10 +281,10 @@ export function createSpeechRecognizer(
           }
         }
 
-        // Combine finalized transcript with the active interim hypothesis
+        // Combine consolidated finalized transcript with the active interim hypothesis
         const currentUtterance = (currentInterim
-          ? mergeTranscriptChunks(accumulatedFinal, currentInterim)
-          : accumulatedFinal
+          ? mergeTranscriptChunks(consolidatedFinal, currentInterim)
+          : consolidatedFinal
         ).trim();
 
         if (currentUtterance && currentUtterance !== lastEmittedTranscript) {

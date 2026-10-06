@@ -186,20 +186,31 @@ export function getEmotionVisualMeta(emotion: string = 'neutral'): EmotionVisual
 export function normalizeDecimalsForSpeech(text: string): string {
   if (!text) return '';
 
-  let normalized = text
-    // Expand temperature symbols naturally for TTS engines
-    .replace(/℃/g, ' degrees Celsius')
-    .replace(/℉/g, ' degrees Fahrenheit')
-    .replace(/°\s*C\b/gi, ' degrees Celsius')
-    .replace(/°\s*F\b/gi, ' degrees Fahrenheit')
-    .replace(/°(?!\w)/g, ' degrees');
+  const isHindi = hasDevanagariScript(text);
+
+  let normalized = text;
+  if (isHindi) {
+    normalized = normalized
+      .replace(/℃/g, ' डिग्री सेल्सियस')
+      .replace(/℉/g, ' डिग्री फारेनहाइट')
+      .replace(/°\s*C\b/gi, ' डिग्री सेल्सियस')
+      .replace(/°\s*F\b/gi, ' डिग्री फारेनहाइट')
+      .replace(/°(?!\w)/g, ' डिग्री');
+  } else {
+    normalized = normalized
+      .replace(/℃/g, ' degrees Celsius')
+      .replace(/℉/g, ' degrees Fahrenheit')
+      .replace(/°\s*C\b/gi, ' degrees Celsius')
+      .replace(/°\s*F\b/gi, ' degrees Fahrenheit')
+      .replace(/°(?!\w)/g, ' degrees');
+  }
 
   // Convert decimal numbers (with optional negative sign) to "point" notation for smooth speech flow.
   // Lookbehind ensures not preceded by digit+dot, letters, or url/email characters.
   // Lookahead ensures not followed by dot+digit (like in dates or version numbers) or letters.
   normalized = normalized.replace(
     /(?<!\d\.)(?<![a-zA-Z0-9_@\/-])(-?\d+)\.(\d+)(?!\.\d)(?![a-zA-Z0-9_@])/g,
-    '$1 point $2'
+    isHindi ? '$1 पॉइंट $2' : '$1 point $2'
   );
 
   return normalized;
@@ -216,6 +227,11 @@ export function cleanTextForSpeech(text: string): string {
   // Canonical safety: Strip any JSON wrappers, double-encoded JSON, or residual {"reply": wrappers
   let cleaned = normalizeAssistantResponse(text);
   if (!cleaned) return '';
+
+  // Canonical Unicode NFC normalization for composed Devanagari characters
+  cleaned = cleaned.normalize('NFC');
+
+  const isHindiContext = hasDevanagariScript(cleaned);
 
   // 1. Initial cleanup of markdown blocks and list markers
   cleaned = cleaned
@@ -238,13 +254,25 @@ export function cleanTextForSpeech(text: string): string {
   cleaned = normalizeDecimalsForSpeech(cleaned);
 
   // 3. Currency and symbol expansions
+  if (isHindiContext) {
+    cleaned = cleaned
+      .replace(/₹\s*(\d+(?:\s*पॉइंट\s*\d+)?)/g, '$1 रुपये')
+      .replace(/Rs\.?\s*(\d+(?:\s*पॉइंट\s*\d+)?)/gi, '$1 रुपये')
+      .replace(/%/g, ' प्रतिशत')
+      .replace(/&/g, ' और ')
+      .replace(/\+/g, ' प्लस ')
+      .replace(/=/g, ' बराबर ');
+  } else {
+    cleaned = cleaned
+      .replace(/₹\s*(\d+(?:\s*point\s*\d+)?)/g, '$1 rupees')
+      .replace(/Rs\.?\s*(\d+(?:\s*point\s*\d+)?)/gi, '$1 rupees')
+      .replace(/%/g, ' percent')
+      .replace(/&/g, ' and ')
+      .replace(/\+/g, ' plus ')
+      .replace(/=/g, ' equals ');
+  }
+
   cleaned = cleaned
-    .replace(/₹\s*(\d+(?:\s*point\s*\d+)?)/g, '$1 rupees')
-    .replace(/Rs\.?\s*(\d+(?:\s*point\s*\d+)?)/gi, '$1 rupees')
-    .replace(/%/g, ' percent')
-    .replace(/&/g, ' and ')
-    .replace(/\+/g, ' plus ')
-    .replace(/=/g, ' equals ')
     // Expand common acronyms for crisp letter pronunciation in TTS
     .replace(/\bGDP\b/g, 'G D P')
     .replace(/\bUPI\b/g, 'U P I')
@@ -271,19 +299,23 @@ export function cleanTextForSpeech(text: string): string {
 /**
  * Breaks cleaned text into natural conversational clauses and sentences.
  * This prevents monotone continuous rush and allows natural breathing pauses.
+ * Includes Devanagari Danda (।) and Double Danda (॥) for authentic Hindi sentence cadence.
  */
 export function segmentSpeechText(text: string): Array<{ text: string; isQuestion: boolean }> {
   if (!text) return [];
 
-  // Match sentences ending in punctuation or newlines
-  const rawSegments = text.match(/[^.!?\n]+[.!?\n]*/g) || [text];
+  // Match sentences ending in punctuation (including Devanagari Danda । and Double Danda ॥) or newlines
+  const rawSegments = text.match(/[^.!?\n।॥]+[.!?\n।॥]*/g) || [text];
   const results: Array<{ text: string; isQuestion: boolean }> = [];
 
   for (const raw of rawSegments) {
     const trimmed = raw.trim();
     if (!trimmed) continue;
 
-    const isQuestion = trimmed.endsWith('?');
+    const isQuestion =
+      trimmed.endsWith('?') ||
+      trimmed.endsWith('?।') ||
+      trimmed.endsWith('?॥');
     results.push({
       text: trimmed,
       isQuestion,
@@ -489,6 +521,154 @@ export function getAvailableVoices(): SpeechVoiceOption[] {
 export function hasDevanagariScript(text: string): boolean {
   if (!text) return false;
   return /[\u0900-\u097F]/.test(text);
+}
+
+/**
+ * Phonetically transliterates Devanagari text into natural Latin Hinglish.
+ * Used when a device/browser lacks native Hindi TTS voices (e.g. desktop/laptop with only English voices),
+ * enabling Indian English and system speech synthesizers to enunciate Hindi words with fluent, natural phonetics
+ * instead of choking, going silent, or mispronouncing Devanagari glyphs with English letter sounds.
+ */
+export function devanagariToPhoneticLatin(text: string): string {
+  if (!text) return '';
+
+  const vowels: Record<string, string> = {
+    'अ': 'a', 'आ': 'aa', 'इ': 'i', 'ई': 'ee', 'उ': 'u', 'ऊ': 'oo', 'ऋ': 'ri',
+    'ए': 'e', 'ऐ': 'ai', 'ओ': 'o', 'औ': 'au', 'ऑ': 'o', 'ऍ': 'e',
+  };
+  const matras: Record<string, string> = {
+    'ा': 'aa', 'ि': 'i', 'ी': 'ee', 'ु': 'u', 'ू': 'oo', 'ृ': 'ri',
+    'े': 'e', 'ै': 'ai', 'ो': 'o', 'ौ': 'au', 'ॉ': 'o', 'ॅ': 'e',
+  };
+  const consonants: Record<string, string> = {
+    'क': 'k', 'ख': 'kh', 'ग': 'g', 'घ': 'gh', 'ङ': 'ng',
+    'च': 'ch', 'छ': 'chh', 'ज': 'j', 'झ': 'jh', 'ञ': 'ny',
+    'ट': 't', 'ठ': 'th', 'ड': 'd', 'ढ': 'dh', 'ण': 'n',
+    'त': 't', 'थ': 'th', 'द': 'd', 'ध': 'dh', 'न': 'n',
+    'प': 'p', 'फ': 'ph', 'ब': 'b', 'भ': 'bh', 'म': 'm',
+    'य': 'y', 'र': 'r', 'ल': 'l', 'व': 'v', 'श': 'sh', 'ष': 'sh', 'स': 's', 'ह': 'h',
+    'क़': 'q', 'ख़': 'kh', 'ग़': 'gh', 'ज़': 'z', 'ड़': 'r', 'ढ़': 'rh', 'फ़': 'f',
+  };
+  const digits: Record<string, string> = {
+    '०': '0', '१': '1', '२': '2', '३': '3', '४': '4', '५': '5', '६': '6', '७': '7', '८': '8', '९': '9',
+  };
+
+  let s = text.normalize('NFC');
+  s = s.replace(/[०-९]/g, (d) => digits[d] || d);
+  s = s.replace(/।/g, '.').replace(/॥/g, '.');
+
+  // Common Hindi high-frequency conversational words for optimal TTS prosody
+  const wordOverrides: Record<string, string> = {
+    'है': 'hai',
+    'हैं': 'hain',
+    'हूँ': 'hoon',
+    'हो': 'ho',
+    'था': 'tha',
+    'थी': 'thi',
+    'थे': 'the',
+    'हाँ': 'haan',
+    'नहीं': 'nahin',
+    'और': 'aur',
+    'क्या': 'kya',
+    'क्यों': 'kyun',
+    'कैसे': 'kaise',
+    'कब': 'kab',
+    'कहाँ': 'kahan',
+    'कौन': 'kaun',
+    'कितना': 'kitna',
+    'कितने': 'kitne',
+    'कितनी': 'kitni',
+    'बहुत': 'bahut',
+    'अच्छा': 'achha',
+    'नमस्ते': 'namaste',
+    'मौसम': 'mausam',
+    'तापमान': 'taapmaan',
+    'डिग्री': 'degree',
+    'सेल्सियस': 'celsius',
+    'भारत': 'bharat',
+    'क्रिकेट': 'cricket',
+    'मैच': 'match',
+    'जीत': 'jeet',
+    'जीता': 'jeeta',
+    'जीती': 'jeeti',
+    'जीते': 'jeete',
+    'हार': 'haar',
+    'स्कोर': 'score',
+    'विकेट': 'wicket',
+    'रन': 'run',
+    'आज': 'aaj',
+    'कल': 'kal',
+    'अलविदा': 'alvida',
+    'शुक्रिया': 'shukriya',
+    'धन्यवाद': 'dhanyavaad',
+    'दोस्त': 'dost',
+    'बिल्कुल': 'bilkul',
+    'ज़्यादा': 'zyada',
+    'कम': 'kam',
+    'सब': 'sab',
+    'ठीक': 'theek',
+    'बारिश': 'baarish',
+    'धूप': 'dhoop',
+    'हवा': 'hawa',
+    'बादल': 'baadal',
+    'टिया': 'Tia',
+    'बॉस': 'boss',
+  };
+
+  return s.replace(/[\u0900-\u097F]+/g, (chunk) => {
+    if (wordOverrides[chunk]) {
+      return wordOverrides[chunk];
+    }
+    let out = '';
+    const len = chunk.length;
+    for (let i = 0; i < len; i++) {
+      const ch = chunk[i];
+      const next = i + 1 < len ? chunk[i + 1] : '';
+
+      if (digits[ch]) {
+        out += digits[ch];
+        continue;
+      }
+      if (vowels[ch]) {
+        out += vowels[ch];
+        continue;
+      }
+      if (consonants[ch]) {
+        const c = consonants[ch];
+        if (next === '्') { // halant / virama suppresses inherent vowel
+          out += c;
+          i++;
+        } else if (matras[next]) {
+          out += c + matras[next];
+          i++;
+        } else if (next === 'ं' || next === 'ँ') {
+          out += c + 'an';
+          i++;
+        } else if (i === len - 1) { // terminal consonant: schwa deletion in modern Hindi
+          out += c;
+        } else if (consonants[next] || vowels[next]) {
+          out += c + 'a';
+        } else {
+          out += c;
+        }
+        continue;
+      }
+      if (matras[ch]) {
+        out += matras[ch];
+        continue;
+      }
+      if (ch === 'ं' || ch === 'ँ') {
+        out += 'n';
+        continue;
+      }
+      if (ch === 'ः') {
+        out += 'h';
+        continue;
+      }
+      out += ch;
+    }
+    return out;
+  });
 }
 
 /**
@@ -751,45 +931,76 @@ export function speakEmotionally({
     }
 
     const { text: segText, isQuestion } = segments[currentSegmentIndex];
-    const utterance = new SpeechSynthesisUtterance(segText);
+    const segHasDevanagari = hasDevanagariScript(segText);
+
+    // Resolve active voice with asynchronous fallback if voices loaded late
+    let activeVoice = voice;
+    let liveVoices: SpeechSynthesisVoice[] = [];
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      liveVoices = window.speechSynthesis.getVoices();
+      if (liveVoices.length > 0) {
+        // If segment has Devanagari script, aggressively look for a native Hindi voice
+        if (segHasDevanagari && (!activeVoice || !isHindiVoice(activeVoice))) {
+          const hindiVoiceMatch = liveVoices.find((v) => isHindiVoice(v));
+          if (hindiVoiceMatch) {
+            activeVoice = hindiVoiceMatch;
+          }
+        } else if (!activeVoice) {
+          const resolved = selectContextualVoice(
+            {
+              emotion,
+              detectedLanguage,
+              text: cleaned,
+            },
+            liveVoices
+          );
+          activeVoice = resolved.voice;
+        }
+      }
+    }
+
+    const hasNativeHindiVoice = Boolean(activeVoice && isHindiVoice(activeVoice));
+
+    // Prepare speech text:
+    // If text has Devanagari AND we have a native Hindi voice: speak Hindi text directly.
+    // If text has Devanagari BUT system lacks a native Hindi voice (e.g. laptop or system with only English voices):
+    // transliterate Devanagari to clean phonetic Latin (Hinglish) so the Indian English / system voice enunciates
+    // the Hindi words accurately with fluent Indian phonetics rather than choking or mispronouncing!
+    const textToSpeakInUtterance =
+      segHasDevanagari && !hasNativeHindiVoice
+        ? devanagariToPhoneticLatin(segText)
+        : segText;
+
+    const utterance = new SpeechSynthesisUtterance(textToSpeakInUtterance);
 
     // Keep reference in module-level set to prevent GC collection during speech playback
     activeUtterancesSet.add(utterance);
 
-    // Resolve active voice with asynchronous fallback if voices loaded late
-    let activeVoice = voice;
-    if (!activeVoice && typeof window !== 'undefined' && 'speechSynthesis' in window) {
-      const liveVoices = window.speechSynthesis.getVoices();
-      if (liveVoices.length > 0) {
-        const resolved = selectContextualVoice(
-          {
-            emotion,
-            detectedLanguage,
-            text: cleaned,
-          },
-          liveVoices
-        );
-        activeVoice = resolved.voice;
-      }
-    }
-
     // Configure voice and language
-    const segHasDevanagari = hasDevanagariScript(segText);
-    if (activeVoice && isAllowedTiaVoice(activeVoice)) {
+    if (hasNativeHindiVoice && activeVoice) {
       utterance.voice = activeVoice;
-      if (segHasDevanagari || isHindiVoice(activeVoice)) {
-        utterance.lang = 'hi-IN';
-      } else if (activeVoice.lang && !isDisallowedRegionalVoice(activeVoice)) {
+      utterance.lang = 'hi-IN';
+    } else if (segHasDevanagari) {
+      // No native Hindi voice on device:
+      // Pair phonetic Latin Hindi with best Indian English voice (or candidate voice)
+      const indianEnVoice =
+        liveVoices.find((v) => isIndianEnglishVoice(v)) ||
+        (activeVoice && isAllowedTiaVoice(activeVoice) ? activeVoice : null);
+      if (indianEnVoice) {
+        utterance.voice = indianEnVoice;
+      }
+      utterance.lang = 'en-IN';
+    } else if (activeVoice && isAllowedTiaVoice(activeVoice)) {
+      utterance.voice = activeVoice;
+      if (activeVoice.lang && !isDisallowedRegionalVoice(activeVoice)) {
         utterance.lang = activeVoice.lang;
       } else {
         utterance.lang = detectedLanguage === 'hindi' ? 'hi-IN' : 'en-IN';
       }
     } else {
       // Default language tag if no voice instance attached
-      if (segHasDevanagari || detectedLanguage === 'hindi') {
+      if (detectedLanguage === 'hindi') {
         utterance.lang = 'hi-IN';
-      } else if (detectedLanguage === 'english') {
-        utterance.lang = 'en-IN';
       } else {
         utterance.lang = 'en-IN';
       }
@@ -840,11 +1051,15 @@ export function speakEmotionally({
       if (!retriedFallback && (utterance.voice || utterance.lang !== 'en-US')) {
         retriedFallback = true;
         console.log('Retrying speech with generic system voice fallback...');
-        const fallbackUtterance = new SpeechSynthesisUtterance(segText);
+        const fallbackText =
+          segHasDevanagari && !hasNativeHindiVoice
+            ? devanagariToPhoneticLatin(segText)
+            : (segHasDevanagari ? devanagariToPhoneticLatin(segText) : segText);
+        const fallbackUtterance = new SpeechSynthesisUtterance(fallbackText);
         fallbackUtterance.rate = utterance.rate;
         fallbackUtterance.pitch = utterance.pitch;
         fallbackUtterance.volume = utterance.volume;
-        fallbackUtterance.lang = 'en-US';
+        fallbackUtterance.lang = segHasDevanagari ? 'en-IN' : 'en-US';
         activeUtterancesSet.add(fallbackUtterance);
 
         fallbackUtterance.onstart = utterance.onstart;
