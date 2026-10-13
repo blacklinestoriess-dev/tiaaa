@@ -39,6 +39,7 @@ import {
   lockAndValidateAssistantAnswer,
   type VerifiedFactObject,
 } from './universalFactEngine.ts';
+import { routeUserQuery, type RouteDecision } from './queryRouter.ts';
 
 export interface GroundingSource {
   title: string;
@@ -434,6 +435,7 @@ Output strictly as a valid JSON object:
 // parseAssistantResponse is imported from ./responseNormalizer.ts
 
 export async function handleChatRequest(req: IncomingMessage, res: ServerResponse) {
+  const t3_backendReceived = Date.now();
   if (req.method !== 'POST') {
     res.statusCode = 405;
     res.setHeader('Content-Type', 'application/json');
@@ -476,6 +478,10 @@ export async function handleChatRequest(req: IncomingMessage, res: ServerRespons
 
   try {
     const body = await readRequestBody(req);
+    const requestId =
+      (req.headers['x-request-id'] as string) ||
+      (body as any)?.requestId ||
+      `req_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
     const userMessage: string = (body.message || '').trim();
     const history: Array<{ role: 'user' | 'assistant'; content: string }> =
       Array.isArray(body.history) ? body.history : [];
@@ -493,6 +499,46 @@ export async function handleChatRequest(req: IncomingMessage, res: ServerRespons
       res.statusCode = 400;
       res.setHeader('Content-Type', 'application/json');
       res.end(JSON.stringify({ error: 'Message content is required.' }));
+      return;
+    }
+
+    // STEP 1: ROUTING CLASSIFICATION (< 2ms)
+    const routeDecision: RouteDecision = routeUserQuery(userMessage, history);
+    const t4_intentClassified = Date.now();
+
+    // Route 0: Instant LOCAL_DATETIME route (0ms local resolution, NO Gemini, NO Search, NO Fact verification)
+    if (routeDecision.route === 'LOCAL_DATETIME') {
+      const reply = routeDecision.localDateTimeReply || 'Aaj ka din ekdum mast hai boss!';
+      const t10_postProcessed = Date.now();
+      console.log(
+        `[PERF:${requestId}] route=LOCAL_DATETIME | intentMs=${t4_intentClassified - t3_backendReceived} | totalBackendMs=${t10_postProcessed - t3_backendReceived}`
+      );
+      res.statusCode = 200;
+      res.setHeader('Content-Type', 'application/json');
+      res.setHeader('X-Request-Id', String(requestId));
+      res.end(
+        JSON.stringify({
+          reply,
+          emotion: 'friendly',
+          detectedLanguage: 'hinglish',
+          contextType: 'chat',
+          suggestedVoiceGender: 'female',
+          model: 'local-datetime-utility',
+          sources: [],
+          timing: {
+            requestId,
+            route: 'LOCAL_DATETIME',
+            intentMs: t4_intentClassified - t3_backendReceived,
+            toolMs: 0,
+            geminiMs: 0,
+            postMs: 0,
+            totalBackendMs: t10_postProcessed - t3_backendReceived,
+          },
+          ...(hasLocalProfile
+            ? { localProfile }
+            : { userProfile: profile, memories: [] }),
+        })
+      );
       return;
     }
 
@@ -533,11 +579,10 @@ export async function handleChatRequest(req: IncomingMessage, res: ServerRespons
     });
 
     const ai = getAi();
-    // Prioritize high-throughput, resilient Gemini models with active quota
+    // Prioritize high-throughput, lowest-latency Gemini models with active quota
     const rawCandidateModels = [
-      'gemini-3-flash-preview',
-      'gemini-3.1-flash-lite-preview',
       'gemini-3.1-flash-lite',
+      'gemini-3.1-flash-lite-preview',
       'gemini-flash-latest',
       'gemini-3.8-flash',
     ];
@@ -550,73 +595,126 @@ export async function handleChatRequest(req: IncomingMessage, res: ServerRespons
       return aCooldown - bCooldown;
     });
 
+    let t5_searchToolStart = Date.now();
+    let t6_searchToolEnd = t5_searchToolStart;
     let capturedSources: GroundingSource[] = [];
 
-    // Step 0: CANONICAL UNIVERSAL FACTUAL ACCURACY ENGINE
-    // Evaluates exact question scope, domain, fresh ground truth, and builds structured verified facts
-    const verifiedFactObj: VerifiedFactObject = await resolveVerifiedFactObject(userMessage, history);
-    if (verifiedFactObj.verified && verifiedFactObj.sources.length > 0) {
-      capturedSources = [
-        ...verifiedFactObj.sources,
-        ...capturedSources.filter((s) => !verifiedFactObj.sources.some((v) => v.url === s.url)),
-      ];
-    }
-
-    const weatherInquiry = detectWeatherInquiry(userMessage);
-    const sportsInquiry = detectSportsInquiry(userMessage, history);
+    let verifiedFactObj: VerifiedFactObject = {
+      domain: 'CONVERSATIONAL',
+      question: userMessage,
+      scope: 'CASUAL',
+      currentDate: getIndiaCurrentDate().formatted,
+      eventStatus: 'unknown',
+      facts: {},
+      verified: false,
+      confidence: 'UNVERIFIED',
+      sourceType: 'UNVERIFIED',
+      sources: [],
+      directFactualAnswer: '',
+    };
+    let weatherInquiry = detectWeatherInquiry(userMessage);
+    let sportsInquiry: any = { isSports: false };
     let sportsResult: SportsResult | null = null;
-    if (sportsInquiry.isSports && !verifiedFactObj.verified) {
-      try {
-        sportsResult = await getLiveCricketSchedule(sportsInquiry, new Date());
-        if (sportsResult.sources && sportsResult.sources.length > 0) {
-          capturedSources = sportsResult.sources;
-        }
-      } catch (sErr) {
-        console.warn('Error fetching live cricket schedule:', sErr);
-      }
-    }
-
-    // Step 1: Universal Fact Verification & Grounding across all domains (BRICS, Politics, Science, History, Tech, Business, Sports, News)
-    const questionClassification = classifyQuestion(userMessage, history);
-    const rawConstraints = extractQueryConstraints(userMessage, history);
-    const constraints = resolveContext(rawConstraints, history);
-
-    const isFreshOrVerifiable =
-      questionClassification.classification === 'CURRENT_FRESH' ||
-      questionClassification.classification === 'SPECIFIC_VERIFIABLE' ||
-      questionClassification.isRecheck ||
-      sportsInquiry.isSports;
-
     let universalSearchResult: GroundedSearchResult | null = null;
-    if (isFreshOrVerifiable) {
-      try {
-        universalSearchResult = await executeUniversalWebSearch(userMessage, constraints, history);
-        if (universalSearchResult.sources && universalSearchResult.sources.length > 0) {
-          capturedSources = [
-            ...universalSearchResult.sources,
-            ...capturedSources.filter(
-              (s) => !universalSearchResult!.sources.some((c) => c.url === s.url)
-            ),
-          ];
-        }
-      } catch (searchErr) {
-        console.warn('[FactPipeline] Universal web search error:', searchErr);
-      }
-    }
-
-    let response: any = null;
-    let successfulModel = candidateModels[0];
-    let lastError: any = null;
+    let constraints: any = null;
+    let questionClassification: any = null;
+    let isFreshOrVerifiable = false;
 
     const initialContents = [...contents];
+    const initialTools: any[] = [];
 
-    // Priority 1: Inject Canonical Verified Fact Object
-    if (verifiedFactObj.verified && verifiedFactObj.directFactualAnswer) {
-      initialContents.push({
-        role: 'user',
-        parts: [
-          {
-            text: `[CANONICAL VERIFIED TRUTH (ZERO HALLUCINATION MANDATE)]:
+    // STEP 2: ROUTED TOOL & SEARCH EXECUTION
+    if (routeDecision.route === 'CASUAL' || routeDecision.route === 'STATIC') {
+      // Routes A & B: CASUAL & STATIC NEVER execute search, sports, or fact verification pipelines
+      t5_searchToolStart = t4_intentClassified;
+      t6_searchToolEnd = t4_intentClassified;
+    } else if (routeDecision.route === 'TOOL') {
+      // Route D: TOOL REQUIRED (Direct pre-resolution to avoid Gemini tool roundtrips)
+      t5_searchToolStart = Date.now();
+      if (routeDecision.toolType === 'weather') {
+        const targetCity =
+          routeDecision.targetLocation || sanitizeLocationQuery(userMessage) || userPlace || 'Patna';
+        try {
+          const weatherResult = await getLiveWeather(targetCity);
+          initialContents.push({
+            role: 'user',
+            parts: [
+              {
+                text: `[VERIFIED LIVE WEATHER DATA]:
+City: ${weatherResult.city}
+Temperature: ${weatherResult.temperatureFormatted || `${weatherResult.temperature}°C`}
+Feels Like: ${weatherResult.feelsLikeFormatted || `${weatherResult.feelsLike}°C`}
+Condition: ${weatherResult.condition}
+Humidity: ${weatherResult.humidity}%
+Wind Speed: ${weatherResult.windSpeed} km/h
+Rain/Precipitation: ${weatherResult.rainFormatted || (weatherResult.isRaining ? 'Raining' : 'None reported')}
+
+Formulate a natural, witty spoken Tia response using these verified metrics. Keep it concise (1-2 spoken sentences). Output strictly valid JSON.`,
+              },
+            ],
+          });
+        } catch (wErr) {
+          console.warn('[Tool Route] Weather fetch error:', wErr);
+        }
+      }
+      t6_searchToolEnd = Date.now();
+    } else {
+      // Route C: LIVE / TIME-SENSITIVE / EXPLICIT VERIFICATION
+      t5_searchToolStart = Date.now();
+      verifiedFactObj = await resolveVerifiedFactObject(userMessage, history);
+      if (verifiedFactObj.verified && verifiedFactObj.sources.length > 0) {
+        capturedSources = [
+          ...verifiedFactObj.sources,
+          ...capturedSources.filter((s) => !verifiedFactObj.sources.some((v) => v.url === s.url)),
+        ];
+      }
+
+      sportsInquiry = detectSportsInquiry(userMessage, history);
+      if (sportsInquiry.isSports && !verifiedFactObj.verified) {
+        try {
+          sportsResult = await getLiveCricketSchedule(sportsInquiry, new Date());
+          if (sportsResult.sources && sportsResult.sources.length > 0) {
+            capturedSources = sportsResult.sources;
+          }
+        } catch (sErr) {
+          console.warn('Error fetching live cricket schedule:', sErr);
+        }
+      }
+
+      questionClassification = classifyQuestion(userMessage, history);
+      const rawConstraints = extractQueryConstraints(userMessage, history);
+      constraints = resolveContext(rawConstraints, history);
+
+      isFreshOrVerifiable =
+        questionClassification.classification === 'CURRENT_FRESH' ||
+        questionClassification.classification === 'SPECIFIC_VERIFIABLE' ||
+        questionClassification.isRecheck ||
+        sportsInquiry.isSports;
+
+      if (isFreshOrVerifiable && !verifiedFactObj.verified && !sportsResult?.isVerifiedLive) {
+        try {
+          universalSearchResult = await executeUniversalWebSearch(userMessage, constraints, history);
+          if (universalSearchResult.sources && universalSearchResult.sources.length > 0) {
+            capturedSources = [
+              ...universalSearchResult.sources,
+              ...capturedSources.filter(
+                (s) => !universalSearchResult!.sources.some((c) => c.url === s.url)
+              ),
+            ];
+          }
+        } catch (searchErr) {
+          console.warn('[FactPipeline] Universal web search error:', searchErr);
+        }
+      }
+      t6_searchToolEnd = Date.now();
+
+      // Priority 1: Inject Canonical Verified Fact Object
+      if (verifiedFactObj.verified && verifiedFactObj.directFactualAnswer) {
+        initialContents.push({
+          role: 'user',
+          parts: [
+            {
+              text: `[CANONICAL VERIFIED TRUTH (ZERO HALLUCINATION MANDATE)]:
 Domain: ${verifiedFactObj.domain}
 Scope: ${verifiedFactObj.scope}
 Competition: ${verifiedFactObj.competition || 'N/A'}
@@ -632,30 +730,30 @@ MANDATORY RULES:
 1. The structured facts above are the LOCKED TRUTH. You must NOT alter any numbers, scores, medal counts, names, venues, dates, or winners.
 2. Deliver this exact factual conclusion in Tia's natural, witty, warm companion Hinglish personality.
 3. Output strictly as valid JSON.`,
-          },
-        ],
-      });
-    }
-
-    // Inject Universal Grounding Context if retrieved
-    if (universalSearchResult && universalSearchResult.summaryContext && !verifiedFactObj.verified) {
-      const isNextBrics =
-        constraints.topic === 'brics' &&
-        (/\b(agla|agle|next|upcoming|future|2027)\b/i.test(userMessage) || constraints.timeFrame === '2027');
-      const is2026Brics =
-        constraints.topic === 'brics' && !isNextBrics;
-
-      let bricsTemporalGuidance = '';
-      if (isNextBrics) {
-        bricsTemporalGuidance =
-          'The NEXT BRICS summit is the 19th summit to be held in CHINA in 2027. China will assume the rotating presidency. Brazil is NOT the next host. Clearly state 2027 in China.';
-      } else if (is2026Brics) {
-        bricsTemporalGuidance =
-          'The 18th BRICS summit ALREADY OCCURRED and concluded in the past (12-13 September 2026 at Bharat Mandapam, New Delhi, India). State clearly that it concluded in past tense ("ho chuka hai" / "aayojit hua tha"). NEVER claim it will happen in future ("hoga") or that dates are unannounced.';
+            },
+          ],
+        });
       }
 
-      const verifiedGuidance = universalSearchResult.hasDirectVerifiedData
-        ? `MANDATORY FACTUAL GROUND TRUTH (ZERO HALLUCINATION DIRECTIVE):
+      // Inject Universal Grounding Context if retrieved
+      if (universalSearchResult && universalSearchResult.summaryContext && !verifiedFactObj.verified) {
+        const isNextBrics =
+          constraints.topic === 'brics' &&
+          (/\b(agla|agle|next|upcoming|future|2027)\b/i.test(userMessage) || constraints.timeFrame === '2027');
+        const is2026Brics =
+          constraints.topic === 'brics' && !isNextBrics;
+
+        let bricsTemporalGuidance = '';
+        if (isNextBrics) {
+          bricsTemporalGuidance =
+            'The NEXT BRICS summit is the 19th summit to be held in CHINA in 2027. China will assume the rotating presidency. Brazil is NOT the next host. Clearly state 2027 in China.';
+        } else if (is2026Brics) {
+          bricsTemporalGuidance =
+            'The 18th BRICS summit ALREADY OCCURRED and concluded in the past (12-13 September 2026 at Bharat Mandapam, New Delhi, India). State clearly that it concluded in past tense ("ho chuka hai" / "aayojit hua tha"). NEVER claim it will happen in future ("hoga") or that dates are unannounced.';
+        }
+
+        const verifiedGuidance = universalSearchResult.hasDirectVerifiedData
+          ? `MANDATORY FACTUAL GROUND TRUTH (ZERO HALLUCINATION DIRECTIVE):
 Authoritative verified data is confirmed:
 "${universalSearchResult.verifiedDirectAnswer || universalSearchResult.extractedFactHint}"
 Temporal Status: ${universalSearchResult.temporalStatus || 'EVERGREEN'} (Relative to today's date: ${getIndiaCurrentDate().formatted}).
@@ -663,33 +761,33 @@ You MUST communicate this exact factual conclusion.
 ${bricsTemporalGuidance}
 Do NOT claim the information is unavailable, secret, or unverified.
 Deliver this exact fact naturally in Tia's signature friendly, playful, witty companion tone in Hinglish.`
-        : `MANDATORY INSTRUCTION:
+          : `MANDATORY INSTRUCTION:
 This specific fact could not be confirmed right now from authoritative sources.
 State honestly in Tia's voice: "Boss, main isko abhi reliably verify nahi kar pa rahi 😅, isliye main guess nahi karungi."`;
 
-      initialContents.push({
-        role: 'user',
-        parts: [
-          {
-            text: `${universalSearchResult.summaryContext}
+        initialContents.push({
+          role: 'user',
+          parts: [
+            {
+              text: `${universalSearchResult.summaryContext}
 
 CANONICAL FACTUAL ACCURACY DIRECTIVE:
 1. ${verifiedGuidance}
 2. Respect exact user constraints: Topic: ${constraints.topic}, Entity: ${constraints.entity || 'unspecified'}, TimeFrame: ${constraints.timeFrame || 'unspecified'}, Category: ${constraints.category || 'unspecified'}, Format: ${constraints.format || 'unspecified'}, Position: ${constraints.position || 'unspecified'}.
 3. NEVER mix formats, years, categories, or positions.
 4. Output strictly as valid JSON according to schema.`,
-          },
-        ],
-      });
-    }
+            },
+          ],
+        });
+      }
 
-    if (sportsInquiry.isSports && sportsResult) {
-      const rIntent = sportsInquiry.rankingIntent;
-      initialContents.push({
-        role: 'user',
-        parts: [
-          {
-            text: `[OFFICIAL VERIFIED SPORTS & CRICKET DATA (BCCI, ICC, CRICBUZZ)]:
+      if (sportsInquiry.isSports && sportsResult) {
+        const rIntent = sportsInquiry.rankingIntent;
+        initialContents.push({
+          role: 'user',
+          parts: [
+            {
+              text: `[OFFICIAL VERIFIED SPORTS & CRICKET DATA (BCCI, ICC, CRICBUZZ)]:
 ${JSON.stringify(sportsResult)}
 
 MANDATORY RULES FOR THIS SPORTS QUERY (ZERO HALLUCINATION POLICY):
@@ -714,241 +812,214 @@ MANDATORY RULES FOR THIS SPORTS QUERY (ZERO HALLUCINATION POLICY):
    - Current T20I squad: Captain is Shreyas Iyer, Vice-Captain is Tilak Varma. Rohit Sharma and Virat Kohli are retired from T20Is.
    - Playing XI: Official playing XI has NOT been announced yet (announced only at toss).
 5. Output strictly as valid JSON according to the schema.`,
-          },
-        ],
-      });
+            },
+          ],
+        });
+      }
+
+      const canUseGoogleSearch =
+        process.env.ENABLE_GEMINI_GOOGLE_SEARCH === 'true' &&
+        Date.now() > googleSearchQuotaCooldownUntil;
+      if (canUseGoogleSearch) {
+        initialTools.push({ googleSearch: {} });
+      }
+      initialTools.push({ functionDeclarations: [liveWeatherDeclaration, liveCricketDeclaration] });
     }
 
-    const canUseGoogleSearch =
-      process.env.ENABLE_GEMINI_GOOGLE_SEARCH === 'true' &&
-      Date.now() > googleSearchQuotaCooldownUntil;
-    const initialTools: any[] = [];
-    if (canUseGoogleSearch) {
-      initialTools.push({ googleSearch: {} });
-    }
-    initialTools.push({ functionDeclarations: [liveWeatherDeclaration, liveCricketDeclaration] });
+    // STEP 3: GEMINI GENERATION
+    const t7_geminiStart = Date.now();
+    let response: any = null;
+    let successfulModel = candidateModels[0];
+    let lastError: any = null;
 
     for (const modelName of candidateModels) {
       try {
         let firstResponse: any = null;
 
-        // Step 1: Call Gemini with tools (or plain text if tools unavailable)
-        try {
+        if (initialTools.length === 0) {
+          // Zero-tool, direct high-speed single model call for CASUAL, STATIC, or pre-fetched TOOL
           firstResponse = await ai.models.generateContent({
             model: modelName,
             contents: initialContents,
             config: {
               systemInstruction,
-              tools: initialTools,
-              toolConfig: { includeServerSideToolInvocations: true },
-              temperature: 0.82,
-              maxOutputTokens: 1024,
+              temperature: 0.75,
+              maxOutputTokens: 350,
+              responseMimeType: 'application/json',
             },
           });
-        } catch (searchToolErr: any) {
-          const errMsg = String(searchToolErr?.message || '');
-          const isRateLimit =
-            errMsg.includes('429') ||
-            errMsg.includes('RESOURCE_EXHAUSTED') ||
-            (searchToolErr as any)?.status === 429;
-
-          if (isRateLimit && initialTools.some((t: any) => t.googleSearch)) {
-            googleSearchQuotaCooldownUntil = Date.now() + 24 * 60 * 60 * 1000;
+          if (firstResponse && firstResponse.text) {
+            response = firstResponse;
+            successfulModel = modelName;
+            break;
           }
-
-          // If the model itself hit 429 quota (not from googleSearch), do NOT hammer it with more calls!
-          if (isRateLimit && !initialTools.some((t: any) => t.googleSearch)) {
-            throw searchToolErr;
-          }
-
+        } else {
+          // LIVE route with tools
           try {
             firstResponse = await ai.models.generateContent({
               model: modelName,
               contents: initialContents,
               config: {
                 systemInstruction,
-                tools: [{ functionDeclarations: [liveWeatherDeclaration, liveCricketDeclaration] }],
-                temperature: 0.82,
-                maxOutputTokens: 1024,
+                tools: initialTools,
+                toolConfig: { includeServerSideToolInvocations: true },
+                temperature: 0.8,
+                maxOutputTokens: 512,
               },
             });
-          } catch (funcToolErr: any) {
+          } catch (searchToolErr: any) {
+            const errMsg = String(searchToolErr?.message || '');
+            const isRateLimit =
+              errMsg.includes('429') ||
+              errMsg.includes('RESOURCE_EXHAUSTED') ||
+              (searchToolErr as any)?.status === 429;
+
+            if (isRateLimit && initialTools.some((t: any) => t.googleSearch)) {
+              googleSearchQuotaCooldownUntil = Date.now() + 24 * 60 * 60 * 1000;
+            }
+
+            if (isRateLimit && !initialTools.some((t: any) => t.googleSearch)) {
+              throw searchToolErr;
+            }
+
             try {
               firstResponse = await ai.models.generateContent({
                 model: modelName,
                 contents: initialContents,
                 config: {
                   systemInstruction,
-                  temperature: 0.82,
-                  maxOutputTokens: 1024,
+                  tools: [{ functionDeclarations: [liveWeatherDeclaration, liveCricketDeclaration] }],
+                  temperature: 0.8,
+                  maxOutputTokens: 512,
                 },
               });
-            } catch (pureErr: any) {
-              throw pureErr;
+            } catch (funcToolErr: any) {
+              firstResponse = await ai.models.generateContent({
+                model: modelName,
+                contents: initialContents,
+                config: {
+                  systemInstruction,
+                  temperature: 0.8,
+                  maxOutputTokens: 512,
+                },
+              });
             }
           }
-        }
 
-        // Extract native Google Search grounding citations if any
-        if (firstResponse) {
-          const sources = extractGroundingSources(firstResponse);
-          if (sources.length > 0) {
-            capturedSources = [...capturedSources, ...sources];
-          }
-        }
-
-        // Check if Gemini invoked getLiveWeather or getLiveCricketInfo
-        const weatherCall = firstResponse?.functionCalls?.find(
-          (c: any) => c.name === 'getLiveWeather'
-        );
-        const cricketCall = firstResponse?.functionCalls?.find(
-          (c: any) => c.name === 'getLiveCricketInfo'
-        );
-
-        if (weatherCall) {
-          let reqLocation = ((weatherCall.args as any)?.location || '').trim();
-          if (!reqLocation || /^(here|current\s*location|my\s*city|my\s*location)$/i.test(reqLocation)) {
-            reqLocation = userPlace;
+          if (firstResponse) {
+            const sources = extractGroundingSources(firstResponse);
+            if (sources.length > 0) {
+              capturedSources = [...capturedSources, ...sources];
+            }
           }
 
-          let weatherResult: any;
-          if (!reqLocation) {
-            weatherResult = {
-              success: false,
-              error: 'no_location_provided',
-              message: "Which city's weather should I check?",
-            };
-          } else {
-            weatherResult = await getLiveWeather(reqLocation);
-          }
+          const weatherCall = firstResponse?.functionCalls?.find(
+            (c: any) => c.name === 'getLiveWeather'
+          );
+          const cricketCall = firstResponse?.functionCalls?.find(
+            (c: any) => c.name === 'getLiveCricketInfo'
+          );
 
-          const toolContents = [
-            ...contents,
-            firstResponse.candidates?.[0]?.content,
-            {
-              role: 'user',
-              parts: [
-                {
-                  functionResponse: {
-                    name: 'getLiveWeather',
-                    response: weatherResult,
+          if (weatherCall) {
+            let reqLocation = ((weatherCall.args as any)?.location || '').trim();
+            if (!reqLocation || /^(here|current\s*location|my\s*city|my\s*location)$/i.test(reqLocation)) {
+              reqLocation = userPlace;
+            }
+
+            let weatherResult: any;
+            if (!reqLocation) {
+              weatherResult = {
+                success: false,
+                error: 'no_location_provided',
+                message: "Which city's weather should I check?",
+              };
+            } else {
+              weatherResult = await getLiveWeather(reqLocation);
+            }
+
+            const toolContents = [
+              ...contents,
+              firstResponse.candidates?.[0]?.content,
+              {
+                role: 'user',
+                parts: [
+                  {
+                    functionResponse: {
+                      name: 'getLiveWeather',
+                      response: weatherResult,
+                    },
                   },
-                },
-              ],
-            },
-          ];
+                ],
+              },
+            ];
 
-          const secondResponse = await ai.models.generateContent({
-            model: modelName,
-            contents: toolContents,
-            config: {
-              systemInstruction,
-              temperature: 0.82,
-              maxOutputTokens: 1024,
-              responseMimeType: 'application/json',
-            },
-          });
+            const secondResponse = await ai.models.generateContent({
+              model: modelName,
+              contents: toolContents,
+              config: {
+                systemInstruction,
+                temperature: 0.75,
+                maxOutputTokens: 512,
+                responseMimeType: 'application/json',
+              },
+            });
 
-          if (secondResponse && secondResponse.text) {
-            response = secondResponse;
-            successfulModel = modelName;
-            break;
-          }
-        } else if (cricketCall) {
-          const args = cricketCall.args as any;
-          const liveData = await getLiveCricketSchedule({
-            isSports: true,
-            sport: 'cricket',
-            intent: args?.queryType || 'schedule',
-            opponent: args?.opponent,
-            format: args?.format,
-          });
-          if (liveData.sources?.length) {
-            capturedSources = liveData.sources;
-          }
+            if (secondResponse && secondResponse.text) {
+              response = secondResponse;
+              successfulModel = modelName;
+              break;
+            }
+          } else if (cricketCall) {
+            const args = cricketCall.args as any;
+            const liveData = await getLiveCricketSchedule({
+              isSports: true,
+              sport: 'cricket',
+              intent: args?.queryType || 'schedule',
+              opponent: args?.opponent,
+              format: args?.format,
+            });
+            if (liveData.sources?.length) {
+              capturedSources = liveData.sources;
+            }
 
-          const toolContents = [
-            ...contents,
-            firstResponse.candidates?.[0]?.content,
-            {
-              role: 'user',
-              parts: [
-                {
-                  functionResponse: {
-                    name: 'getLiveCricketInfo',
-                    response: liveData,
+            const toolContents = [
+              ...contents,
+              firstResponse.candidates?.[0]?.content,
+              {
+                role: 'user',
+                parts: [
+                  {
+                    functionResponse: {
+                      name: 'getLiveCricketInfo',
+                      response: liveData,
+                    },
                   },
-                },
-              ],
-            },
-          ];
+                ],
+              },
+            ];
 
-          const secondResponse = await ai.models.generateContent({
-            model: modelName,
-            contents: toolContents,
-            config: {
-              systemInstruction,
-              temperature: 0.82,
-              maxOutputTokens: 1024,
-              responseMimeType: 'application/json',
-            },
-          });
+            const secondResponse = await ai.models.generateContent({
+              model: modelName,
+              contents: toolContents,
+              config: {
+                systemInstruction,
+                temperature: 0.75,
+                maxOutputTokens: 512,
+                responseMimeType: 'application/json',
+              },
+            });
 
-          if (secondResponse && secondResponse.text) {
-            response = secondResponse;
-            successfulModel = modelName;
-            break;
-          }
-        } else if (weatherInquiry.isWeather) {
-          // Model did not trigger functionCall directly, but message has explicit weather intent
-          let targetCity = weatherInquiry.locationHint || userPlace;
-          let weatherResult: any;
-          if (!targetCity) {
-            weatherResult = {
-              success: false,
-              error: 'no_location_provided',
-              message: "Which city's weather should I check?",
-            };
+            if (secondResponse && secondResponse.text) {
+              response = secondResponse;
+              successfulModel = modelName;
+              break;
+            }
           } else {
-            weatherResult = await getLiveWeather(targetCity);
-          }
-
-          const toolContents = [
-            ...contents,
-            {
-              role: 'user',
-              parts: [
-                {
-                  text: `[LIVE WEATHER TOOL DATA]: ${JSON.stringify(
-                    weatherResult
-                  )}\nFormulate a natural, witty spoken Tia response using these live verified metrics. If weather is unavailable or no city was given, answer accordingly without guessing numbers. Output strictly as valid JSON.`,
-                },
-              ],
-            },
-          ];
-
-          const secondResponse = await ai.models.generateContent({
-            model: modelName,
-            contents: toolContents,
-            config: {
-              systemInstruction,
-              temperature: 0.82,
-              maxOutputTokens: 1024,
-              responseMimeType: 'application/json',
-            },
-          });
-
-          if (secondResponse && secondResponse.text) {
-            response = secondResponse;
-            successfulModel = modelName;
-            break;
-          }
-        } else {
-          // Standard response (grounded with Google Search or direct answer)
-          if (firstResponse && firstResponse.text) {
-            response = firstResponse;
-            successfulModel = modelName;
-            break;
+            if (firstResponse && firstResponse.text) {
+              response = firstResponse;
+              successfulModel = modelName;
+              break;
+            }
           }
         }
       } catch (err: any) {
@@ -969,6 +1040,7 @@ MANDATORY RULES FOR THIS SPORTS QUERY (ZERO HALLUCINATION POLICY):
         continue;
       }
     }
+    const t9_geminiEnd = Date.now();
 
     if (successfulModel) {
       modelRateLimitCooldowns.delete(successfulModel);
@@ -1109,40 +1181,98 @@ MANDATORY RULES FOR THIS SPORTS QUERY (ZERO HALLUCINATION POLICY):
     }
 
     // Universal Fact Validation & Consistency Check across all domains (BRICS, Politics, History, Science, Tech, Sports)
-    if (sportsInquiry.isSports && sportsResult && (!universalSearchResult || !universalSearchResult.hasDirectVerifiedData)) {
-      universalSearchResult = {
-        sources: sportsResult.sources,
-        summaryContext: sportsResult.summary,
-        hasDirectVerifiedData: sportsResult.isVerifiedLive,
-        verifiedDirectAnswer: sportsResult.verifiedDirectAnswer,
-        extractedFactHint: sportsResult.verifiedDirectAnswer,
-        temporalStatus:
-          sportsResult.match?.status === 'today'
-            ? 'ONGOING'
-            : sportsResult.match?.status === 'past'
-              ? 'PAST_COMPLETED'
-              : 'UPCOMING',
-        validationStatus: sportsResult.isVerifiedLive ? 'MATCHED' : 'UNVERIFIED',
-        answerSourceType: 'WEB_VERIFIED',
-      };
-    }
-
-    parsedData.reply = validateAndSanitizeFact(
-      parsedData.reply,
-      constraints,
-      universalSearchResult || {
-        sources: [],
-        summaryContext: '',
-        hasDirectVerifiedData: false,
-        validationStatus: isFreshOrVerifiable ? 'UNVERIFIED' : 'NOT_REQUIRED',
-        temporalStatus: 'UNKNOWN',
-        answerSourceType: 'FALLBACK',
+    if (routeDecision.route === 'LIVE') {
+      if (sportsInquiry.isSports && sportsResult && (!universalSearchResult || !universalSearchResult.hasDirectVerifiedData)) {
+        universalSearchResult = {
+          sources: sportsResult.sources,
+          summaryContext: sportsResult.summary,
+          hasDirectVerifiedData: sportsResult.isVerifiedLive,
+          verifiedDirectAnswer: sportsResult.verifiedDirectAnswer,
+          extractedFactHint: sportsResult.verifiedDirectAnswer,
+          temporalStatus:
+            sportsResult.match?.status === 'today'
+              ? 'ONGOING'
+              : sportsResult.match?.status === 'past'
+                ? 'PAST_COMPLETED'
+                : 'UPCOMING',
+          validationStatus: sportsResult.isVerifiedLive ? 'MATCHED' : 'UNVERIFIED',
+          answerSourceType: 'WEB_VERIFIED',
+        };
       }
-    );
 
-    // CANONICAL FACT LOCK VALIDATION: Compare generated answer with verifiedFactObj and enforce exact truth
-    if (verifiedFactObj.verified) {
-      parsedData.reply = lockAndValidateAssistantAnswer(parsedData.reply, verifiedFactObj);
+      parsedData.reply = validateAndSanitizeFact(
+        parsedData.reply,
+        constraints || { topic: 'general' },
+        universalSearchResult || {
+          sources: [],
+          summaryContext: '',
+          hasDirectVerifiedData: false,
+          validationStatus: isFreshOrVerifiable ? 'UNVERIFIED' : 'NOT_REQUIRED',
+          temporalStatus: 'UNKNOWN',
+          answerSourceType: 'FALLBACK',
+        }
+      );
+
+      // CANONICAL FACT LOCK VALIDATION: Compare generated answer with verifiedFactObj and enforce exact truth
+      if (verifiedFactObj.verified) {
+        parsedData.reply = lockAndValidateAssistantAnswer(parsedData.reply, verifiedFactObj);
+      }
+
+      // Canonical Structured Diagnostic Factual Logging
+      const eventDateResolved =
+        constraints?.timeFrame ||
+        (universalSearchResult?.structuredFact?.startDate
+          ? `${universalSearchResult.structuredFact.startDate}${universalSearchResult.structuredFact.endDate ? ` – ${universalSearchResult.structuredFact.endDate}` : ''}`
+          : 'N/A');
+      const eventStatusResolved =
+        universalSearchResult?.temporalStatus === 'PAST_COMPLETED'
+          ? 'past'
+          : universalSearchResult?.temporalStatus === 'UPCOMING'
+            ? 'upcoming'
+            : universalSearchResult?.temporalStatus === 'ONGOING'
+              ? 'ongoing'
+              : 'unknown';
+      const oldDataFound =
+        constraints?.topic === 'brics' && constraints?.timeFrame === '2027'
+          ? 'Brazil in older web search results'
+          : constraints?.topic === 'cricket' && /17\s*september|17\s*sep/i.test(userMessage)
+            ? '18 September fixture schedule'
+            : 'None';
+
+      logFactPipelineDebug({
+        userQuery: userMessage,
+        currentDate: getIndiaCurrentDate().formatted,
+        detectedEvent: constraints?.entity || `${constraints?.topic ? constraints.topic.toUpperCase() : 'GENERAL'} Event`,
+        eventDate: eventDateResolved,
+        sourcePublicationDate: universalSearchResult?.sourceDate || 'September 2026',
+        source: universalSearchResult?.selectedSource?.url || universalSearchResult?.selectedSource?.title || 'Tier 1 Official Record',
+        extractedFact: universalSearchResult?.extractedFactHint || universalSearchResult?.verifiedDirectAnswer || 'N/A',
+        eventStatus: eventStatusResolved as any,
+        oldDataFound,
+        oldDataUsed: 'NO',
+        finalAnswer: parsedData.reply,
+        validationResult: universalSearchResult?.validationStatus || (isFreshOrVerifiable ? 'UNVERIFIED' : 'SKIPPED'),
+        detectedIntent: `${questionClassification?.classification || 'LIVE'} (${constraints?.topic || 'general'})`,
+        extractedConstraints: constraints || {},
+        currentContext: history.length > 0 ? history[history.length - 1].content.slice(0, 100) : 'None',
+        finalContext: JSON.stringify({
+          topic: constraints?.topic,
+          entity: constraints?.entity,
+          timeFrame: constraints?.timeFrame,
+          format: constraints?.format,
+          category: constraints?.category,
+          position: constraints?.position,
+        }),
+        freshSearchRequired: isFreshOrVerifiable,
+        searchPerformed: isFreshOrVerifiable && capturedSources.length > 0,
+        searchQuery: universalSearchResult?.searchQueryUsed || 'None',
+        sourcesFound: capturedSources.length,
+        selectedSource: capturedSources[0]?.title,
+        sourceDate: universalSearchResult?.sourceDate || getIndiaCurrentDate().formatted,
+        answerSourceType:
+          universalSearchResult?.answerSourceType ||
+          (sportsResult ? 'STATIC_DATA' : isFreshOrVerifiable ? 'FALLBACK' : 'MODEL_KNOWLEDGE'),
+      });
     }
 
     // Final canonical safety pass: absolutely guarantee parsedData.reply is clean plain text
@@ -1151,61 +1281,10 @@ MANDATORY RULES FOR THIS SPORTS QUERY (ZERO HALLUCINATION POLICY):
       parsedData.reply = 'Boss, response thoda glitch ho gaya 😅 Ek baar phir poochho.';
     }
 
-    // Canonical Structured Diagnostic Factual Logging
-    const eventDateResolved =
-      constraints.timeFrame ||
-      (universalSearchResult?.structuredFact?.startDate
-        ? `${universalSearchResult.structuredFact.startDate}${universalSearchResult.structuredFact.endDate ? ` – ${universalSearchResult.structuredFact.endDate}` : ''}`
-        : 'N/A');
-    const eventStatusResolved =
-      universalSearchResult?.temporalStatus === 'PAST_COMPLETED'
-        ? 'past'
-        : universalSearchResult?.temporalStatus === 'UPCOMING'
-          ? 'upcoming'
-          : universalSearchResult?.temporalStatus === 'ONGOING'
-            ? 'ongoing'
-            : 'unknown';
-    const oldDataFound =
-      constraints.topic === 'brics' && constraints.timeFrame === '2027'
-        ? 'Brazil in older web search results'
-        : constraints.topic === 'cricket' && /17\s*september|17\s*sep/i.test(userMessage)
-          ? '18 September fixture schedule'
-          : 'None';
-
-    logFactPipelineDebug({
-      userQuery: userMessage,
-      currentDate: getIndiaCurrentDate().formatted,
-      detectedEvent: constraints.entity || `${constraints.topic.toUpperCase()} Event`,
-      eventDate: eventDateResolved,
-      sourcePublicationDate: universalSearchResult?.sourceDate || 'September 2026',
-      source: universalSearchResult?.selectedSource?.url || universalSearchResult?.selectedSource?.title || 'Tier 1 Official Record',
-      extractedFact: universalSearchResult?.extractedFactHint || universalSearchResult?.verifiedDirectAnswer || 'N/A',
-      eventStatus: eventStatusResolved as any,
-      oldDataFound,
-      oldDataUsed: 'NO',
-      finalAnswer: parsedData.reply,
-      validationResult: universalSearchResult?.validationStatus || (isFreshOrVerifiable ? 'UNVERIFIED' : 'SKIPPED'),
-      detectedIntent: `${questionClassification.classification} (${constraints.topic})`,
-      extractedConstraints: constraints,
-      currentContext: history.length > 0 ? history[history.length - 1].content.slice(0, 100) : 'None',
-      finalContext: JSON.stringify({
-        topic: constraints.topic,
-        entity: constraints.entity,
-        timeFrame: constraints.timeFrame,
-        format: constraints.format,
-        category: constraints.category,
-        position: constraints.position,
-      }),
-      freshSearchRequired: isFreshOrVerifiable,
-      searchPerformed: isFreshOrVerifiable && capturedSources.length > 0,
-      searchQuery: universalSearchResult?.searchQueryUsed || 'None',
-      sourcesFound: capturedSources.length,
-      selectedSource: capturedSources[0]?.title,
-      sourceDate: universalSearchResult?.sourceDate || getIndiaCurrentDate().formatted,
-      answerSourceType:
-        universalSearchResult?.answerSourceType ||
-        (sportsResult ? 'STATIC_DATA' : isFreshOrVerifiable ? 'FALLBACK' : 'MODEL_KNOWLEDGE'),
-    });
+    const t10_postProcessed = Date.now();
+    console.log(
+      `[PERF:${requestId}] route=${routeDecision.route} | intentMs=${t4_intentClassified - t3_backendReceived} | toolMs=${t6_searchToolEnd - t5_searchToolStart} | geminiMs=${t9_geminiEnd - t7_geminiStart} | postMs=${t10_postProcessed - t9_geminiEnd} | totalBackendMs=${t10_postProcessed - t3_backendReceived}`
+    );
 
     // Execute memory actions only for authenticated token users to avoid mutating server DB for local profiles
     if (token) {
@@ -1289,6 +1368,7 @@ MANDATORY RULES FOR THIS SPORTS QUERY (ZERO HALLUCINATION POLICY):
 
     res.statusCode = 200;
     res.setHeader('Content-Type', 'application/json');
+    res.setHeader('X-Request-Id', String(requestId));
     res.end(
       JSON.stringify({
         reply: parsedData.reply,
@@ -1298,6 +1378,15 @@ MANDATORY RULES FOR THIS SPORTS QUERY (ZERO HALLUCINATION POLICY):
         suggestedVoiceGender: parsedData.suggestedVoiceGender,
         sources: capturedSources.length > 0 ? capturedSources : undefined,
         model: successfulModel,
+        timing: {
+          requestId,
+          route: routeDecision.route,
+          intentMs: t4_intentClassified - t3_backendReceived,
+          toolMs: t6_searchToolEnd - t5_searchToolStart,
+          geminiMs: t9_geminiEnd - t7_geminiStart,
+          postMs: t10_postProcessed - t9_geminiEnd,
+          totalBackendMs: t10_postProcessed - t3_backendReceived,
+        },
         ...(hasLocalProfile
           ? { localProfile }
           : { userProfile: profile, memories: userMemories }),

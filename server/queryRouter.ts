@@ -22,7 +22,7 @@
  *        PRISTINE RESPONSE
  */
 
-export type QueryRoute = 'CASUAL' | 'STATIC' | 'TOOL' | 'LIVE';
+export type QueryRoute = 'LOCAL_DATETIME' | 'CASUAL' | 'STATIC' | 'TOOL' | 'LIVE';
 
 export interface RouteDecision {
   route: QueryRoute;
@@ -31,6 +31,57 @@ export interface RouteDecision {
   toolType?: 'weather' | 'memory';
   targetLocation?: string;
   isSportsRelated?: boolean;
+  localDateTimeReply?: string;
+}
+
+/**
+ * Lightweight Day & Date matcher for instant local resolution (0ms, 0 external calls)
+ */
+export function isDayOrDateQuery(msg: string): { isMatch: boolean; type: 'day' | 'date' } {
+  const lower = (msg || '').trim().toLowerCase();
+  if (
+    /^(aaj\s*(kaun\s*sa|konsa|kya|kon\s*sa)?\s*(din|day|vaar|var)\s*(hai)?|\baaj\s*kaunsa\s*din\s*hai\b|(what|which)\s*(day|weekday)\s*(is\s*(today|it\s*today|it)|is\s*it)|today\s*is\s*(what|which)\s*day)[\s?!.,]*$/i.test(
+      lower
+    )
+  ) {
+    return { isMatch: true, type: 'day' };
+  }
+  if (
+    /^(aaj\s*(kya|konsi|kaun\s*si|ki)?\s*(date|tarikh|tareekh|tithi)\s*(kya\s*)?(hai)?|what\s*is\s*the\s*date\s*today|today'?s\s*date|(what|which)\s*date\s*is\s*(today|it))[\s?!.,]*$/i.test(
+      lower
+    )
+  ) {
+    return { isMatch: true, type: 'date' };
+  }
+  return { isMatch: false, type: 'day' };
+}
+
+/**
+ * Lightweight local date utility resolving India local timezone immediately without network calls
+ */
+export function getLocalDayAndDate(userTimezone = 'Asia/Kolkata') {
+  const now = new Date();
+  const weekdayEnglish = now.toLocaleDateString('en-IN', {
+    timeZone: userTimezone,
+    weekday: 'long',
+  });
+  const hindiWeekdays: Record<string, string> = {
+    Sunday: 'Ravivar',
+    Monday: 'Somwar',
+    Tuesday: 'Mangalwar',
+    Wednesday: 'Budhwar',
+    Thursday: 'Guruwar',
+    Friday: 'Shukrawar',
+    Saturday: 'Shaniwar',
+  };
+  const hindiDay = hindiWeekdays[weekdayEnglish] || weekdayEnglish;
+  const dateStr = now.toLocaleDateString('en-IN', {
+    timeZone: userTimezone,
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  });
+  return { weekdayEnglish, hindiDay, dateStr };
 }
 
 // 1. Explicit verification keywords (Overrides speed for guaranteed accuracy)
@@ -107,11 +158,12 @@ const STATIC_WEATHER_PATTERNS = [
   /\b(what\s*is|define|how\s*does)\s*(weather|monsoon|rain|climate|global\s*warming)\b/i,
 ];
 
-// 9. Static definitions / evergreen knowledge (STATIC route)
+// 9. Static definitions / evergreen knowledge / comparisons (STATIC route)
 const STATIC_DEFINITION_PATTERNS = [
   /\b(kya\s*hai|kya\s*hota\s*hai|kya\s*hoti\s*hai|kisne\s*banaya|kisne\s*likha|kaun\s*the|kaun\s*tha)\b/i,
   /\b(what\s*is|what\s*are|define|explain|who\s*was|who\s*invented|who\s*discovered)\b/i,
   /\b(capital\s*of|capital\s*kya\s*hai|rajdhani\s*kya\s*hai|speed\s*of\s*light|photosynthesis|gravity|dna|rna|cpu|ram|html|css|javascript|python|quantum|black\s*hole|solar\s*system|earth|constitution)\b/i,
+  /\b(kisme\s*zyada|kisme\s*jyada|which\s*has\s*more|protein|calorie|calories|vitamin|vitamins|fat|carbs|difference\s*between|antar\s*kya\s*hai|tulna|compare)\b/i,
 ];
 
 // Static sports questions (rules, evergreen players, history)
@@ -149,7 +201,29 @@ export function routeUserQuery(
   // Strip trailing punctuation and extra whitespace for clean matching
   const normalized = lower.replace(/[!?.,;]+$/, '').trim();
 
-  // Rule 0: Pure emoji string -> immediate CASUAL
+  // Rule 0: Lightweight Day & Date resolution (Immediate 0ms local response, NO network/Gemini/search)
+  const dayDate = isDayOrDateQuery(text);
+  if (dayDate.isMatch) {
+    const { weekdayEnglish, hindiDay, dateStr } = getLocalDayAndDate();
+    const isEnglish = /what|today/i.test(lower) && !/aaj|hai|din/i.test(lower);
+    const reply =
+      dayDate.type === 'day'
+        ? (isEnglish
+            ? `Today is ${weekdayEnglish}, ${dateStr} boss! Hope you have a wonderful and productive day! ✨`
+            : `Aaj ${hindiDay} (${weekdayEnglish}) hai boss, aur date hai ${dateStr}! Ummeed hai aapka din ekdum mast aur mangalmay ho! 😄`)
+        : (isEnglish
+            ? `Today's date is ${dateStr} (${weekdayEnglish}) boss! ✨`
+            : `Aaj ki date ${dateStr} hai boss, aur din hai ${hindiDay} (${weekdayEnglish})! ✨`);
+
+    return {
+      route: 'LOCAL_DATETIME',
+      reason: 'Lightweight local day/date calculation',
+      isExplicitVerification: false,
+      localDateTimeReply: reply,
+    };
+  }
+
+  // Rule 0.5: Pure emoji string -> immediate CASUAL
   const emojiOnlyRegex = /^[\p{Emoji}\s]+$/u;
   if (emojiOnlyRegex.test(text) && !/[a-zA-Z0-9]/.test(text)) {
     return {

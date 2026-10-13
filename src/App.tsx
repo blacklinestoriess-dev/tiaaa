@@ -561,6 +561,10 @@ export default function App() {
       const trimmed = userText.trim();
       if (!trimmed) return;
 
+      // STEP 2 PERFORMANCE TIMING: 1. User message received
+      const t1_userMsgReceived = Date.now();
+      const requestId = `req_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+
       // Stale event & double-submission prevention
       activeSessionIdRef.current += 1;
       isSubmittingRef.current = true;
@@ -606,13 +610,18 @@ export default function App() {
 
       try {
         const token = authSession?.token || localStorage.getItem('tia_auth_token');
+        // STEP 2 PERFORMANCE TIMING: 2. Frontend request started
+        const t2_frontendReqStart = Date.now();
+
         const response = await fetch('/api/chat', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
+            'X-Request-Id': requestId,
             ...(token ? { Authorization: `Bearer ${token}` } : {}),
           },
           body: JSON.stringify({
+            requestId,
             message: trimmed,
             history: messages.map((m) => ({
               role: m.role,
@@ -628,6 +637,8 @@ export default function App() {
         });
 
         const data = await parseApiResponse(response, '/api/chat');
+        // STEP 2 PERFORMANCE TIMING: 11. Frontend received response
+        const t11_frontendReceivedResp = Date.now();
 
         // Update persistent owner profile if Tia remembered or updated anything
         if (data.ownerProfile) {
@@ -673,7 +684,22 @@ export default function App() {
           sources: Array.isArray(data.sources) ? data.sources : undefined,
         };
 
+        // STEP 2 PERFORMANCE TIMING: 12. First text rendered
+        const t12_firstTextRendered = Date.now();
         setMessages((prev) => [...prev, tiaMsg]);
+
+        // STEP 2 PERFORMANCE TIMING: 13. TTS started
+        const t13_ttsStarted = Date.now();
+
+        if ((import.meta as any)?.env?.DEV) {
+          console.debug(`[PERF:${requestId}] Client metrics:`, {
+            networkRoundtripMs: t11_frontendReceivedResp - t2_frontendReqStart,
+            totalClientElapsedMs: t11_frontendReceivedResp - t1_userMsgReceived,
+            renderElapsedMs: t12_firstTextRendered - t1_userMsgReceived,
+            ttsElapsedMs: t13_ttsStarted - t1_userMsgReceived,
+            serverTiming: data?.timing,
+          });
+        }
 
         // Speak Tia's answer out loud with natural prosody and chosen voice
         speakResponse(
