@@ -6,6 +6,7 @@ import { defineConfig, Plugin } from 'vite';
 import { handleChatRequest } from './server/chatHandler';
 import { handleProfileRequest, handleConversationRequest } from './server/profileHandler';
 import { handleAuthRequest } from './server/authHandler';
+import { handleTTSRequest, handleTTSStatusRequest } from './server/ttsHandler';
 
 // LINT.IfChange(aistudio_media_plugin)
 function aistudioMediaPlugin(): Plugin {
@@ -91,6 +92,14 @@ function tiaApiPlugin(): Plugin {
         if (req.url && req.url.startsWith('/api/health')) {
           res.setHeader('Content-Type', 'application/json');
           res.end(JSON.stringify({ status: 'ok', assistant: 'Tia' }));
+          return;
+        }
+        if (req.url && req.url.startsWith('/api/tts/status')) {
+          handleTTSStatusRequest(req, res);
+          return;
+        }
+        if (req.url && req.url.startsWith('/api/tts')) {
+          handleTTSRequest(req, res);
           return;
         }
         if (req.url && req.url.startsWith('/api')) {

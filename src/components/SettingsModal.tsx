@@ -23,10 +23,43 @@ import {
   MessageSquare,
   Calendar,
   Mail,
-  Phone,
   ShieldCheck,
   Heart,
+  Square,
 } from 'lucide-react';
+
+const TEST_SAMPLE_SENTENCES = [
+  {
+    id: 1,
+    label: 'Sentence 1',
+    text: 'Boss, aaj kya plan hai? Kuch interesting karte hain!',
+    target: 'Expressive greeting & English "interesting"',
+  },
+  {
+    id: 2,
+    label: 'Sentence 2',
+    text: 'Chalo, ab is energy ko use karke kuch dhamakedar karte hain.',
+    target: 'English verb "use" (/juːz/) instead of Hindi "उसे"',
+  },
+  {
+    id: 3,
+    label: 'Sentence 3',
+    text: 'Aaj mere servers thode zyada hi happy mood mein hain.',
+    target: 'Hindi particle "ही" instead of English "high"',
+  },
+  {
+    id: 4,
+    label: 'Sentence 4',
+    text: 'Main abhi tumhari help karti hoon.',
+    target: 'Natural Hindi grammar + English "help"',
+  },
+  {
+    id: 5,
+    label: 'Sentence 5',
+    text: 'Wait, Boss! Pehle poori baat toh sun lo.',
+    target: 'Conversational pause & natural pacing',
+  },
+];
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -78,6 +111,55 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [editWork, setEditWork] = useState(localProfile?.work || '');
   const [editInterests, setEditInterests] = useState(localProfile?.interests || '');
   const [editError, setEditError] = useState<string | null>(null);
+  const [playingSampleId, setPlayingSampleId] = useState<number | null>(null);
+  const sampleAudioRef = React.useRef<HTMLAudioElement | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (sampleAudioRef.current) {
+        sampleAudioRef.current.pause();
+        sampleAudioRef.current = null;
+      }
+    };
+  }, []);
+
+  const handlePlaySample = (sampleId: number) => {
+    if (sampleAudioRef.current) {
+      sampleAudioRef.current.pause();
+      sampleAudioRef.current = null;
+    }
+
+    if (playingSampleId === sampleId) {
+      setPlayingSampleId(null);
+      return;
+    }
+
+    const voice = (settings.premiumVoiceId || 'Aoede').toLowerCase();
+    const audioUrl = `/audio_samples/${voice}_sentence_${sampleId}.wav`;
+    const audio = new Audio(audioUrl);
+    sampleAudioRef.current = audio;
+    setPlayingSampleId(sampleId);
+
+    audio.onended = () => {
+      if (sampleAudioRef.current === audio) {
+        sampleAudioRef.current = null;
+      }
+      setPlayingSampleId(null);
+    };
+
+    audio.onerror = () => {
+      console.warn('Audio sample playback error, reverting sample state');
+      if (sampleAudioRef.current === audio) {
+        sampleAudioRef.current = null;
+      }
+      setPlayingSampleId(null);
+    };
+
+    audio.play().catch((err) => {
+      console.warn('Audio play caught:', err);
+      setPlayingSampleId(null);
+    });
+  };
 
   useEffect(() => {
     if (localProfile) {
@@ -685,6 +767,160 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 }`}
               />
             </button>
+          </div>
+
+          {/* Voice Engine & Quality Provider */}
+          <div className="space-y-3 p-3.5 rounded-2xl border border-white/10 bg-slate-800/40">
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <span className="font-semibold text-sm flex items-center space-x-1.5 text-white">
+                  <Sparkles className="w-4 h-4 text-rose-400" />
+                  <span>Voice Engine & Provider</span>
+                </span>
+                <p className="text-xs text-slate-400">
+                  Select default browser synthesis or studio-grade premium cloud voice.
+                </p>
+              </div>
+            </div>
+
+            {/* Provider Toggle Buttons */}
+            <div className="grid grid-cols-2 gap-2 p-1 rounded-xl bg-slate-900/60 border border-white/5">
+              <button
+                type="button"
+                onClick={() => onUpdateSettings({ ttsEngine: 'browser' })}
+                className={`py-2 px-3 rounded-lg text-xs font-medium flex items-center justify-center space-x-1.5 transition-all ${
+                  settings.ttsEngine !== 'premium'
+                    ? 'bg-rose-500 text-white shadow-md'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                <span>Browser Voice</span>
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-black/20">0ms • Free</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => onUpdateSettings({ ttsEngine: 'premium' })}
+                className={`py-2 px-3 rounded-lg text-xs font-medium flex items-center justify-center space-x-1.5 transition-all ${
+                  settings.ttsEngine === 'premium'
+                    ? 'bg-rose-500 text-white shadow-md'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                <span>✨ Premium Studio</span>
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-black/20">HD Voices</span>
+              </button>
+            </div>
+
+            {/* Premium Voice Persona Options */}
+            {settings.ttsEngine === 'premium' ? (
+              <div className="space-y-2.5 pt-1">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-medium text-slate-300">
+                    Studio Voice Persona
+                  </label>
+                  <span className="text-[10px] text-emerald-400 font-medium">
+                    Auto Fallback to Browser Active
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => onUpdateSettings({ premiumVoiceId: 'Aoede' })}
+                    className={`p-2.5 rounded-xl border text-left transition-all ${
+                      (settings.premiumVoiceId || 'Aoede') === 'Aoede'
+                        ? 'border-rose-500 bg-rose-500/10 text-white'
+                        : 'border-white/5 bg-slate-800/60 text-slate-400 hover:border-white/10'
+                    }`}
+                  >
+                    <div className="font-semibold text-xs text-rose-300 flex items-center justify-between">
+                      <span>Aoede</span>
+                      <span className="text-[10px] bg-rose-500/20 px-1 rounded text-rose-300">Recommended</span>
+                    </div>
+                    <p className="text-[11px] text-slate-400 mt-0.5">
+                      Warm, expressive young female tone. Fluent conversational Hinglish.
+                    </p>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => onUpdateSettings({ premiumVoiceId: 'Kore' })}
+                    className={`p-2.5 rounded-xl border text-left transition-all ${
+                      settings.premiumVoiceId === 'Kore'
+                        ? 'border-rose-500 bg-rose-500/10 text-white'
+                        : 'border-white/5 bg-slate-800/60 text-slate-400 hover:border-white/10'
+                    }`}
+                  >
+                    <div className="font-semibold text-xs text-rose-300 flex items-center justify-between">
+                      <span>Kore</span>
+                      <span className="text-[10px] bg-indigo-500/20 px-1 rounded text-indigo-300">Articulate</span>
+                    </div>
+                    <p className="text-[11px] text-slate-400 mt-0.5">
+                      Bright, crisp, friendly female tone. Great clarity on English words.
+                    </p>
+                  </button>
+                </div>
+
+                <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-[11px] text-amber-300 flex items-start space-x-2">
+                  <Info className="w-4 h-4 shrink-0 mt-0.5 text-amber-400" />
+                  <p>
+                    <span className="font-semibold">Safe Failover Guarantee:</span> If rate limits (free tier 10 RPD / 3 RPM) or network timeouts happen, Tia automatically continues speaking via device browser voice with zero delay!
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <p className="text-[11px] text-slate-400">
+                Active: Local device browser voice (Google Hindi / Microsoft Swara) with context-aware Hinglish pronunciation normalizer.
+              </p>
+            )}
+
+            {/* Pronunciation & Voice Evaluation Benchmark Test Suite */}
+            <div className="pt-2.5 border-t border-white/5 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-slate-300">
+                  Evaluation Sentences (Pronunciation Tests)
+                </span>
+                <span className="text-[10px] text-slate-400">
+                  Click to listen
+                </span>
+              </div>
+              <div className="space-y-1.5">
+                {TEST_SAMPLE_SENTENCES.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => handlePlaySample(item.id)}
+                    className={`w-full text-left p-2 rounded-xl border flex items-center justify-between text-xs transition-all ${
+                      playingSampleId === item.id
+                        ? 'bg-rose-500/20 border-rose-500/40 text-white'
+                        : 'bg-slate-900/40 hover:bg-slate-900/70 border-white/5 text-slate-300'
+                    }`}
+                  >
+                    <div className="pr-2 truncate">
+                      <div className="font-medium text-slate-200">
+                        {item.label}: <span className="text-slate-300 italic font-normal">"{item.text}"</span>
+                      </div>
+                      <div className="text-[10px] text-slate-400 mt-0.5">
+                        Target: {item.target}
+                      </div>
+                    </div>
+                    <div className="shrink-0 flex items-center space-x-1.5 text-rose-400 pl-2">
+                      {playingSampleId === item.id ? (
+                        <span className="flex items-center space-x-1 text-xs text-rose-300">
+                          <Square className="w-3.5 h-3.5 fill-current" />
+                          <span>Stop</span>
+                        </span>
+                      ) : (
+                        <span className="flex items-center space-x-1 text-xs text-rose-400">
+                          <Play className="w-3.5 h-3.5 fill-current" />
+                          <span>Play</span>
+                        </span>
+                      )}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
 
           {/* 3. Voice Speed & Test Voice */}

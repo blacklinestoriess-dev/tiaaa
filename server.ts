@@ -6,6 +6,7 @@ import dotenv from 'dotenv';
 import { handleChatRequest } from './server/chatHandler.ts';
 import { handleProfileRequest, handleConversationRequest } from './server/profileHandler.ts';
 import { handleAuthRequest } from './server/authHandler.ts';
+import { handleTTSRequest, handleTTSStatusRequest } from './server/ttsHandler.ts';
 
 dotenv.config();
 
@@ -37,6 +38,7 @@ app.use((req, _res, next) => {
       req.url.startsWith('/chat') ||
       req.url.startsWith('/profile') ||
       req.url.startsWith('/conversations') ||
+      req.url.startsWith('/tts') ||
       req.url.startsWith('/health')
     ) {
       req.url = '/api' + req.url;
@@ -91,6 +93,14 @@ app.use('/api/profile', (req, res, next) => {
 // API endpoint for user-specific conversation history
 app.use('/api/conversations', (req, res, next) => {
   Promise.resolve(handleConversationRequest(req, res)).catch(next);
+});
+
+// API endpoints for Text-to-Speech (Google Cloud Chirp 3 HD & Gemini Audio)
+app.get('/api/tts/status', (req, res, next) => {
+  Promise.resolve(handleTTSStatusRequest(req, res)).catch(next);
+});
+app.post('/api/tts', (req, res, next) => {
+  Promise.resolve(handleTTSRequest(req, res)).catch(next);
 });
 
 // Final API 404 handler: guarantees /api routes return JSON, never HTML (Requirement 21)

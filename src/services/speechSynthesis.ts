@@ -257,7 +257,6 @@ export const HINDI_ROMAN_TO_DEVANAGARI: Record<string, string> = {
   tumhe: 'तुम्हें',
   tumhein: 'तुम्हें',
   aapko: 'आपको',
-  use: 'उसे',
   usse: 'उससे',
   usko: 'उसको',
   unhe: 'उन्हें',
@@ -338,7 +337,6 @@ export const HINDI_ROMAN_TO_DEVANAGARI: Record<string, string> = {
   ho: 'हो',
   tha: 'था',
   thi: 'थी',
-  the: 'थे',
   hoga: 'होगा',
   hogi: 'होगी',
   hoge: 'होगे',
@@ -482,6 +480,7 @@ export const HINDI_ROMAN_TO_DEVANAGARI: Record<string, string> = {
   bhi: 'भी',
   toh: 'तो',
   na: 'ना',
+  mat: 'मत',
   haan: 'हाँ',
   ha: 'हाँ',
   nahi: 'नहीं',
@@ -600,6 +599,10 @@ export const HINDI_ROMAN_TO_DEVANAGARI: Record<string, string> = {
   thanks: 'थैंक्स',
   sorry: 'सॉरी',
   tia: 'टिया',
+  energy: 'एनर्जी',
+  dhamakedar: 'धमाकेदार',
+  bulaana: 'बुलाना',
+  bulana: 'बुलाना',
 };
 
 /**
@@ -626,16 +629,128 @@ export function isHindiOrHinglish(
 }
 
 /**
+ * Context-aware resolution for the word "use":
+ * Distinguishes between:
+ * 1. English verb/noun "use" (/juːz/) -> "यूज़"
+ *    e.g. "energy ko use karke", "feature ka use", "app ko use karo", "please use"
+ * 2. Hindi 3rd-person pronoun "use" ("उसे" / /ʊseː/ = him/her/that)
+ *    e.g. "Mujhe use bulaana hai", "Use bata do", "Humne use dekha", "Use phone karo"
+ */
+export function resolveHinglishUse(
+  fullStr: string,
+  offset: number,
+  word: string
+): string {
+  const before = fullStr.slice(0, offset).trim();
+  const prevMatch = before.match(/\b([a-zA-Z\u0900-\u097F]+)[^\w\u0900-\u097F]*$/);
+  const prevWord = prevMatch ? prevMatch[1].toLowerCase() : '';
+
+  const after = fullStr.slice(offset + word.length).trim();
+  const nextMatch = after.match(
+    /^([a-zA-Z\u0900-\u097F]+)(?:\s+([a-zA-Z\u0900-\u097F]+))?/
+  );
+  const nextWord = nextMatch ? nextMatch[1].toLowerCase() : '';
+  const nextWord2 = nextMatch && nextMatch[2] ? nextMatch[2].toLowerCase() : '';
+
+  // English compound light verbs following "use" (e.g. "use karke", "use karo", "use karna")
+  const englishFollowingVerbs = new Set([
+    'karke', 'करके', 'karo', 'करो', 'karein', 'karen', 'करें', 'kare', 'करे',
+    'karna', 'करना', 'karnaa', 'karenge', 'करेंगे', 'karega', 'करेगा', 'karegi', 'करेगी',
+    'kiya', 'किया', 'kiye', 'किए', 'ki', 'की',
+    'karte', 'करते', 'karti', 'करती', 'karta', 'करता', 'kar', 'कर',
+    'hota', 'होता', 'hoti', 'होती', 'hote', 'होते', 'hona', 'होना', 'hone', 'होने',
+    'hua', 'हुआ', 'hui', 'हुई', 'hue', 'हुए', 'ho', 'हो',
+  ]);
+
+  // English preceding object markers, possessives, prepositions, or modals
+  const englishPreceding = new Set([
+    'ko', 'को', 'ka', 'का', 'ke', 'के', 'ki', 'की',
+    'to', 'please', 'can', 'cant', 'cannot', 'could', 'will', 'would', 'should',
+    'must', 'dont', 'make', 'in', 'how', 'you', 'we', 'i', 'they',
+  ]);
+
+  // English determiners/pronouns following "use" (e.g. "use this", "use that", "use it")
+  const englishFollowingDeterminers = new Set([
+    'this', 'that', 'these', 'those', 'it', 'the', 'a', 'an',
+    'your', 'my', 'our', 'its', 'their', 'of', 'cases', 'case',
+  ]);
+
+  // Hindi verbs acting on a person following "use" (e.g. "use bulaana", "use bol", "use batao")
+  const hindiPersonVerbs = new Set([
+    'bulaana', 'bulao', 'bulaya', 'bulana', 'bula', 'बुलाना', 'बुलाओ', 'बुलाया', 'बुला',
+    'bol', 'bolo', 'boliye', 'bola', 'bolna', 'बोल', 'बोलो', 'बोलिए', 'बोला', 'बोलना',
+    'bata', 'batao', 'bataiye', 'bataya', 'batana', 'बता', 'बताओ', 'बताइए', 'बताया', 'बताना',
+    'de', 'do', 'dena', 'diya', 'dijiye', 'दे', 'दो', 'देना', 'दिया', 'दीजिए',
+    'le', 'lo', 'lena', 'liya', 'lijiye', 'ले', 'लो', 'लेना', 'लिया',
+    'dekh', 'dekho', 'dekha', 'dekhna', 'देख', 'देखो', 'देखा', 'देखना',
+    'samjha', 'samjhao', 'samjhana', 'समझा', 'समझो', 'समझाओ',
+    'rok', 'roko', 'rokna', 'रोक', 'रोको', 'रोकना',
+    'pata', 'पता', 'yaad', 'याद', 'lagta', 'laga', 'लगता', 'लगा',
+    'pasand', 'पसंद', 'zaroorat', 'zarurat', 'ज़रूरत', 'chahiye', 'चाहिए',
+    'milna', 'milo', 'मिलना', 'मिलो', 'bhejo', 'bhej', 'भेजो', 'भेज',
+    'poocho', 'pucho', 'पूछो', 'chhod', 'chhodo', 'छोड़', 'छोड़ो',
+    'aane', 'jaane', 'आने', 'जाने', 'jaanta', 'jaante', 'jaanti', 'जानता', 'जानते', 'जानती',
+  ]);
+
+  // Hindi subject pronouns preceding "use" (e.g. "mujhe use", "maine use", "humne use")
+  const hindiPrecedingPronouns = new Set([
+    'mujhe', 'मुझे', 'humein', 'hamein', 'हमें', 'tumhe', 'tumhein', 'तुम्हें', 'aapko', 'आपको',
+    'maine', 'मैंने', 'humne', 'hamne', 'हमने', 'tumne', 'तुमने', 'aapne', 'आपने',
+    'usne', 'उसने', 'isne', 'इसने', 'unhone', 'उन्होंने', 'inhone', 'इन्होंने',
+  ]);
+
+  // 1. Direct English indicators
+  if (englishPreceding.has(prevWord)) {
+    return 'यूज़';
+  }
+  if (englishFollowingVerbs.has(nextWord)) {
+    return 'यूज़';
+  }
+  if (englishFollowingDeterminers.has(nextWord)) {
+    return 'use';
+  }
+  if (
+    (nextWord === 'mat' || nextWord === 'मत' || nextWord === 'nahi' || nextWord === 'nahin' || nextWord === 'नहीं') &&
+    englishFollowingVerbs.has(nextWord2)
+  ) {
+    return 'यूज़';
+  }
+
+  // 2. Direct Hindi pronoun indicators
+  if (hindiPrecedingPronouns.has(prevWord)) {
+    return 'उसे';
+  }
+  if (hindiPersonVerbs.has(nextWord)) {
+    return 'उसे';
+  }
+  if (
+    (nextWord === 'mat' || nextWord === 'मत' || nextWord === 'nahi' || nextWord === 'nahin' || nextWord === 'नहीं') &&
+    hindiPersonVerbs.has(nextWord2)
+  ) {
+    return 'उसे';
+  }
+
+  // 3. Fallback: if followed by "bhi", "hi", "toh" -> Hindi pronoun "उसे"
+  if (['bhi', 'भी', 'hi', 'ही', 'toh', 'तो'].includes(nextWord)) {
+    return 'उसे';
+  }
+
+  // 4. Default in Hinglish: Hindi pronoun "उसे"
+  return 'उसे';
+}
+
+/**
  * Speech-only normalization layer for Roman Hindi / Hinglish.
  * Converts ambiguous Roman Hindi words into unambiguous Devanagari before TTS
  * so native Hindi engines (like Google Hindi) enunciate correctly (e.g. Hindi particle "hi"
- * as "ही", NOT English greeting "high"/"हाय").
+ * as "ही", NOT English greeting "high"/"हाय"; English "use" as "यूज़", NOT Hindi "उसे").
  *
  * Rules:
  * - Does NOT modify displayed text in chat UI.
  * - Does NOT convert pure English sentences to Hindi.
  * - Preserves English loanwords and brand names where appropriate.
  * - Distinguishes between English greeting "Hi" and Hindi emphatic particle "hi" ("ही").
+ * - Distinguishes between English verb/noun "use" ("यूज़") and Hindi pronoun "use" ("उसे").
  * - Does NOT break words such as "this", "think", "history", or "high".
  * - Runs in sub-millisecond local memory without latency.
  */
@@ -661,6 +776,31 @@ export function normalizeRomanHindiForSpeech(
         return word; // Keep greeting as "Hi"
       }
       return 'ही';
+    }
+
+    // Context-sensitive resolution for "use":
+    // Distinguishes English verb/noun "use" ("यूज़") from Hindi pronoun "use" ("उसे")
+    if (lower === 'use') {
+      return resolveHinglishUse(fullStr, offset, word);
+    }
+
+    // Context-sensitive resolution for "the":
+    // Prevents turning English definite article "the" into Hindi "थे"
+    if (lower === 'the') {
+      const before = fullStr.slice(0, offset).trim();
+      const prevMatch = before.match(/\b([a-zA-Z\u0900-\u097F]+)[^\w\u0900-\u097F]*$/);
+      const prevWord = prevMatch ? prevMatch[1].toLowerCase() : '';
+      if (
+        [
+          'hum', 'हम', 'ham', 'tum', 'तुम', 'aap', 'आप',
+          'wo', 'वो', 'woh', 'ye', 'ये', 'yeh', 'log', 'लोग',
+          'wahan', 'वहाँ', 'yahan', 'यहाँ', 'pehle', 'पहले',
+          'sab', 'सब', 'theek', 'ठीक', 'dono', 'दोनों',
+        ].includes(prevWord)
+      ) {
+        return 'थे';
+      }
+      return 'the';
     }
 
     if (HINDI_ROMAN_TO_DEVANAGARI[lower]) {
@@ -1106,6 +1246,8 @@ export function devanagariToPhoneticLatin(text: string): string {
     'हम': 'hum',
     'ये': 'ye',
     'वो': 'wo',
+    'यूज़': 'use',
+    'उसे': 'usey',
   };
 
   return s.replace(/[\u0900-\u097F]+/g, (chunk) => {
@@ -1628,3 +1770,194 @@ export function speakEmotionally({
 
   return { cancel };
 }
+
+// Module-level pointer to any active HTML5 audio element playing premium speech
+let activeAudioElement: HTMLAudioElement | null = null;
+
+export function stopAnyActiveAudio() {
+  if (activeAudioElement) {
+    try {
+      activeAudioElement.pause();
+      activeAudioElement.currentTime = 0;
+      activeAudioElement.src = '';
+    } catch {
+      // ignore
+    }
+    activeAudioElement = null;
+  }
+}
+
+export function stopAllSpeech() {
+  stopAnyActiveAudio();
+  activeUtterancesSet.clear();
+  if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+    try {
+      window.speechSynthesis.cancel();
+    } catch {
+      // ignore
+    }
+  }
+}
+
+/**
+ * Speaks text using the premium cloud voice provider (Aoede / Kore / Chirp 3 HD) via backend /api/tts.
+ * Automatically falls back to the local browser speech synthesis engine if the API
+ * encounters rate limiting (429), timeouts, errors, or offline status.
+ */
+export function speakWithPremiumVoice({
+  text,
+  voiceId = 'Aoede',
+  emotion = 'neutral',
+  detectedLanguage = 'hinglish',
+  baseRate = 1.0,
+  fallbackVoice = null,
+  onStart,
+  onEnd,
+  onError,
+}: {
+  text: string;
+  voiceId?: string;
+  emotion?: TiaEmotion;
+  detectedLanguage?: 'hindi' | 'hinglish' | 'english';
+  baseRate?: number;
+  fallbackVoice?: SpeechSynthesisVoice | null;
+  onStart?: () => void;
+  onEnd?: () => void;
+  onError?: (err: unknown) => void;
+}): SpeechSessionController {
+  stopAnyActiveAudio();
+  if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+    try {
+      window.speechSynthesis.cancel();
+    } catch {
+      // ignore
+    }
+  }
+
+  const cleaned = cleanTextForSpeech(text, detectedLanguage);
+  if (!cleaned) {
+    onEnd?.();
+    return { cancel: () => {} };
+  }
+
+  let isCancelled = false;
+  let fallbackSession: SpeechSessionController | null = null;
+  const abortController = new AbortController();
+
+  const cancel = () => {
+    isCancelled = true;
+    abortController.abort();
+    stopAnyActiveAudio();
+    if (fallbackSession) {
+      fallbackSession.cancel();
+      fallbackSession = null;
+    }
+  };
+
+  (async () => {
+    try {
+      const res = await fetch('/api/tts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text: cleaned,
+          voiceId,
+          emotion,
+          detectedLanguage,
+        }),
+        signal: abortController.signal,
+      });
+
+      if (!res.ok) {
+        throw new Error(`TTS server HTTP ${res.status}`);
+      }
+
+      const data = await res.json();
+      if (isCancelled) return;
+
+      if (data.success && data.audioData) {
+        // Successful premium cloud audio
+        const binary = atob(data.audioData);
+        const len = binary.length;
+        const bytes = new Uint8Array(len);
+        for (let i = 0; i < len; i++) {
+          bytes[i] = binary.charCodeAt(i);
+        }
+        const blob = new Blob([bytes], { type: data.mimeType || 'audio/wav' });
+        const audioUrl = URL.createObjectURL(blob);
+
+        const audio = new Audio(audioUrl);
+        activeAudioElement = audio;
+        audio.playbackRate = Math.max(0.75, Math.min(1.4, baseRate));
+
+        audio.onplay = () => {
+          if (!isCancelled) {
+            onStart?.();
+          }
+        };
+
+        audio.onended = () => {
+          URL.revokeObjectURL(audioUrl);
+          if (activeAudioElement === audio) {
+            activeAudioElement = null;
+          }
+          if (!isCancelled) {
+            onEnd?.();
+          }
+        };
+
+        audio.onerror = (e) => {
+          URL.revokeObjectURL(audioUrl);
+          if (activeAudioElement === audio) {
+            activeAudioElement = null;
+          }
+          if (isCancelled) return;
+          console.warn('[TTS] Audio element error, falling back to browser voice:', e);
+          fallbackSession = speakEmotionally({
+            text,
+            emotion,
+            detectedLanguage,
+            voice: fallbackVoice,
+            baseRate,
+            onStart,
+            onEnd,
+            onError,
+          });
+        };
+
+        await audio.play();
+      } else {
+        // Fallback flag returned by server (e.g. rate limit or browser selected)
+        console.log('[TTS] Server suggested fallback to browser engine:', data.reason || data.error);
+        if (isCancelled) return;
+        fallbackSession = speakEmotionally({
+          text,
+          emotion,
+          detectedLanguage,
+          voice: fallbackVoice,
+          baseRate,
+          onStart,
+          onEnd,
+          onError,
+        });
+      }
+    } catch (err: any) {
+      if (err.name === 'AbortError' || isCancelled) return;
+      console.warn('[TTS] Network error or timeout, falling back to browser voice:', err?.message);
+      if (isCancelled) return;
+      fallbackSession = speakEmotionally({
+        text,
+        emotion,
+        detectedLanguage,
+        voice: fallbackVoice,
+        baseRate,
+        onStart,
+        onEnd,
+        onError,
+      });
+    }
+  })();
+
+  return { cancel };
+}
+

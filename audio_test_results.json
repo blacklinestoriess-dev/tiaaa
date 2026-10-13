@@ -1,0 +1,79 @@
+[
+  {
+    "voice": "Aoede",
+    "id": 1,
+    "text": "Boss, aaj kya plan hai? Kuch interesting karte hain!",
+    "duration": 2557,
+    "size": 175074,
+    "status": "success"
+  },
+  {
+    "voice": "Aoede",
+    "id": 2,
+    "text": "Chalo, ab is energy ko use karke kuch dhamakedar karte hain.",
+    "duration": 3104,
+    "size": 205794,
+    "status": "success"
+  },
+  {
+    "voice": "Aoede",
+    "id": 3,
+    "text": "Aaj mere servers thode zyada hi happy mood mein hain.",
+    "duration": 2692,
+    "size": 221154,
+    "status": "success"
+  },
+  {
+    "voice": "Aoede",
+    "id": 4,
+    "text": "Main abhi tumhari help karti hoon.",
+    "duration": 2609,
+    "size": 130914,
+    "status": "success"
+  },
+  {
+    "voice": "Aoede",
+    "id": 5,
+    "text": "Wait, Boss! Pehle poori baat toh sun lo.",
+    "duration": 3651,
+    "size": 152034,
+    "status": "success"
+  },
+  {
+    "voice": "Kore",
+    "id": 1,
+    "text": "Boss, aaj kya plan hai? Kuch interesting karte hain!",
+    "duration": 2496,
+    "size": 203874,
+    "status": "success"
+  },
+  {
+    "voice": "Kore",
+    "id": 2,
+    "text": "Chalo, ab is energy ko use karke kuch dhamakedar karte hain.",
+    "duration": 3862,
+    "size": 236514,
+    "status": "success"
+  },
+  {
+    "voice": "Kore",
+    "id": 3,
+    "text": "Aaj mere servers thode zyada hi happy mood mein hain.",
+    "error": "{\"error\":{\"code\":429,\"message\":\"You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. \\n* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 10, model: gemini-3.8-flash-lite-tts\\nPlease retry in 9h52m14.424631546s.\",\"status\":\"RESOURCE_EXHAUSTED\",\"details\":[{\"@type\":\"type.googleapis.com/google.rpc.Help\",\"links\":[{\"description\":\"Learn more about Gemini API quotas\",\"url\":\"https://ai.google.dev/gemini-api/docs/rate-limits\"}]},{\"@type\":\"type.googleapis.com/google.rpc.QuotaFailure\",\"violations\":[{\"quotaMetric\":\"generativelanguage.googleapis.com/generate_content_free_tier_requests\",\"quotaId\":\"GenerateRequestsPerDayPerProjectPerModel-FreeTier\",\"quotaDimensions\":{\"location\":\"global\",\"model\":\"gemini-3.8-flash-lite-tts\"},\"quotaValue\":\"10\"}]},{\"@type\":\"type.googleapis.com/google.rpc.RetryInfo\",\"retryDelay\":\"35534s\"}]}}",
+    "status": "failed"
+  },
+  {
+    "voice": "Kore",
+    "id": 4,
+    "text": "Main abhi tumhari help karti hoon.",
+    "error": "{\"error\":{\"code\":429,\"message\":\"You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. \\n* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 10, model: gemini-3.8-flash-lite-tts\\nPlease retry in 9h51m53.128128326s.\",\"status\":\"RESOURCE_EXHAUSTED\",\"details\":[{\"@type\":\"type.googleapis.com/google.rpc.Help\",\"links\":[{\"description\":\"Learn more about Gemini API quotas\",\"url\":\"https://ai.google.dev/gemini-api/docs/rate-limits\"}]},{\"@type\":\"type.googleapis.com/google.rpc.QuotaFailure\",\"violations\":[{\"quotaMetric\":\"generativelanguage.googleapis.com/generate_content_free_tier_requests\",\"quotaId\":\"GenerateRequestsPerDayPerProjectPerModel-FreeTier\",\"quotaDimensions\":{\"location\":\"global\",\"model\":\"gemini-3.8-flash-lite-tts\"},\"quotaValue\":\"10\"}]},{\"@type\":\"type.googleapis.com/google.rpc.RetryInfo\",\"retryDelay\":\"35513s\"}]}}",
+    "status": "failed"
+  },
+  {
+    "voice": "Kore",
+    "id": 5,
+    "text": "Wait, Boss! Pehle poori baat toh sun lo.",
+    "error": "{\"error\":{\"code\":429,\"message\":\"You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. \\n* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 10, model: gemini-3.8-flash-lite-tts\\nPlease retry in 9h51m31.843608099s.\",\"status\":\"RESOURCE_EXHAUSTED\",\"details\":[{\"@type\":\"type.googleapis.com/google.rpc.Help\",\"links\":[{\"description\":\"Learn more about Gemini API quotas\",\"url\":\"https://ai.google.dev/gemini-api/docs/rate-limits\"}]},{\"@type\":\"type.googleapis.com/google.rpc.QuotaFailure\",\"violations\":[{\"quotaMetric\":\"generativelanguage.googleapis.com/generate_content_free_tier_requests\",\"quotaId\":\"GenerateRequestsPerDayPerProjectPerModel-FreeTier\",\"quotaDimensions\":{\"model\":\"gemini-3.8-flash-lite-tts\",\"location\":\"global\"},\"quotaValue\":\"10\"}]},{\"@type\":\"type.googleapis.com/google.rpc.RetryInfo\",\"retryDelay\":\"35491s\"}]}}",
+    "status": "failed"
+  }
+]

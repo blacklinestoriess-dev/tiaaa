@@ -30,6 +30,8 @@ import {
   getAvailableVoices,
   selectContextualVoice,
   speakEmotionally,
+  speakWithPremiumVoice,
+  stopAnyActiveAudio,
   type SpeechSessionController,
 } from './services/speechSynthesis';
 import {
@@ -60,6 +62,8 @@ const DEFAULT_SETTINGS: TiaSettings = {
   handsFreeMode: true,
   followUpTimeoutSeconds: 4,
   wakeChimeEnabled: true,
+  ttsEngine: 'browser',
+  premiumVoiceId: 'Aoede',
 };
 
 const DEFAULT_OWNER_PROFILE: OwnerProfile = {
@@ -403,6 +407,7 @@ export default function App() {
   // Stop any active speech synthesis (with support for barge-in)
   const stopSpeech = useCallback(() => {
     isSpeakingRef.current = false;
+    stopAnyActiveAudio();
     if (audioSettleTimerRef.current) {
       clearTimeout(audioSettleTimerRef.current);
       audioSettleTimerRef.current = null;
@@ -445,12 +450,8 @@ export default function App() {
         return;
       }
 
-      if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
-        setAssistantState('idle');
-        return;
-      }
-
       // 1. Stop any prior speech session
+      stopAnyActiveAudio();
       if (speechSessionRef.current) {
         speechSessionRef.current.cancel();
         speechSessionRef.current = null;
@@ -490,58 +491,85 @@ export default function App() {
       });
 
       setCurrentEmotion(emotion);
-      setCurrentVoiceName(voiceLabel);
 
-      speechSessionRef.current = speakEmotionally({
-        text: textToSpeak,
-        emotion,
-        detectedLanguage,
-        voice,
-        baseRate: settings.speechRate,
-        onStart: () => {
-          isSpeakingRef.current = true;
-          setAssistantState('speaking');
-          setDebugInfo((prev) => ({
-            ...prev,
-            wakeWordActive: false,
-            recognizerStatus: 'SPEAKING',
-          }));
-        },
-        onEnd: () => {
-          speechSessionRef.current = null;
-          isSpeakingRef.current = false;
-          lastTiaSpeechEndTimeRef.current = Date.now();
+      const handleSpeechEnd = () => {
+        speechSessionRef.current = null;
+        isSpeakingRef.current = false;
+        lastTiaSpeechEndTimeRef.current = Date.now();
 
-          // Wait a short safe audio-settle delay (450ms) so speaker acoustic playback decays completely
-          // before opening the microphone for follow-up listening
-          if (settingsRef.current.handsFreeMode && isSpeechRecognitionSupported()) {
-            if (audioSettleTimerRef.current) {
-              clearTimeout(audioSettleTimerRef.current);
-            }
-            audioSettleTimerRef.current = setTimeout(() => {
-              audioSettleTimerRef.current = null;
-              if (
-                !isComponentMounted.current ||
-                isSpeakingRef.current ||
-                isSubmittingRef.current
-              ) {
-                return;
-              }
-              if (stateRef.current === 'speaking' || stateRef.current === 'idle') {
-                startListeningRef.current(true);
-              }
-            }, 450);
-          } else {
-            setAssistantState('idle');
+        // Wait a short safe audio-settle delay (450ms) so speaker acoustic playback decays completely
+        // before opening the microphone for follow-up listening
+        if (settingsRef.current.handsFreeMode && isSpeechRecognitionSupported()) {
+          if (audioSettleTimerRef.current) {
+            clearTimeout(audioSettleTimerRef.current);
           }
-        },
-        onError: (err) => {
-          console.warn('Speech playback notice:', err);
-          speechSessionRef.current = null;
-          isSpeakingRef.current = false;
+          audioSettleTimerRef.current = setTimeout(() => {
+            audioSettleTimerRef.current = null;
+            if (
+              !isComponentMounted.current ||
+              isSpeakingRef.current ||
+              isSubmittingRef.current
+            ) {
+              return;
+            }
+            if (stateRef.current === 'speaking' || stateRef.current === 'idle') {
+              startListeningRef.current(true);
+            }
+          }, 450);
+        } else {
           setAssistantState('idle');
-        },
-      });
+        }
+      };
+
+      const handleSpeechStart = () => {
+        isSpeakingRef.current = true;
+        setAssistantState('speaking');
+        setDebugInfo((prev) => ({
+          ...prev,
+          wakeWordActive: false,
+          recognizerStatus: 'SPEAKING',
+        }));
+      };
+
+      const handleSpeechError = (err: any) => {
+        console.warn('Speech playback notice:', err);
+        speechSessionRef.current = null;
+        isSpeakingRef.current = false;
+        setAssistantState('idle');
+      };
+
+      if (settings.ttsEngine === 'premium') {
+        const premiumLabel =
+          settings.premiumVoiceId === 'Kore'
+            ? 'Tia Premium (Kore)'
+            : 'Tia Premium (Aoede)';
+        setCurrentVoiceName(premiumLabel);
+
+        speechSessionRef.current = speakWithPremiumVoice({
+          text: textToSpeak,
+          voiceId: settings.premiumVoiceId || 'Aoede',
+          emotion,
+          detectedLanguage,
+          baseRate: settings.speechRate,
+          fallbackVoice: voice,
+          onStart: handleSpeechStart,
+          onEnd: handleSpeechEnd,
+          onError: handleSpeechError,
+        });
+      } else {
+        setCurrentVoiceName(voiceLabel);
+
+        speechSessionRef.current = speakEmotionally({
+          text: textToSpeak,
+          emotion,
+          detectedLanguage,
+          voice,
+          baseRate: settings.speechRate,
+          onStart: handleSpeechStart,
+          onEnd: handleSpeechEnd,
+          onError: handleSpeechError,
+        });
+      }
     },
     [
       settings.voiceEnabled,
@@ -549,6 +577,8 @@ export default function App() {
       settings.autoVoiceSelection,
       settings.selectedVoiceURI,
       settings.speechRate,
+      settings.ttsEngine,
+      settings.premiumVoiceId,
       clearFollowUpTimer,
       clearQuestionWaitTimer,
       clearSpeechSilenceTimer,

@@ -70,6 +70,9 @@ export interface TiaSettings {
   handsFreeMode: boolean;
   followUpTimeoutSeconds: number; // 3 to 5 seconds, default 4
   wakeChimeEnabled: boolean;
+  // Voice engine & premium voice selection
+  ttsEngine?: 'browser' | 'premium';
+  premiumVoiceId?: string;
 }
 
 export interface SpeechVoiceOption {
