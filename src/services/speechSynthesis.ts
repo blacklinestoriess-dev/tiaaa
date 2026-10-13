@@ -217,11 +217,475 @@ export function normalizeDecimalsForSpeech(text: string): string {
 }
 
 /**
+ * Mapping of high-frequency Roman Hindi/Hinglish vocabulary and conversational loanwords
+ * to unambiguous Devanagari script for speech synthesis.
+ */
+export const HINDI_ROMAN_TO_DEVANAGARI: Record<string, string> = {
+  // Pronouns & Demonstratives
+  main: 'मैं',
+  mai: 'मैं',
+  hum: 'हम',
+  ham: 'हम',
+  tum: 'तुम',
+  aap: 'आप',
+  tu: 'तू',
+  mera: 'मेरा',
+  meri: 'मेरी',
+  mere: 'मेरे',
+  tera: 'तेरा',
+  teri: 'तेरी',
+  tere: 'तेरे',
+  hamara: 'हमारा',
+  humara: 'हमारा',
+  hamari: 'हमारी',
+  humari: 'हमारी',
+  hamare: 'हमारे',
+  humare: 'हमारे',
+  tumhara: 'तुम्हारा',
+  tumhari: 'तुम्हारी',
+  tumhare: 'तुम्हारे',
+  aapka: 'आपका',
+  aapki: 'आपकी',
+  aapke: 'आपके',
+  apna: 'अपना',
+  apni: 'अपनी',
+  apne: 'अपने',
+  mujhe: 'मुझे',
+  mujhko: 'मुझको',
+  humein: 'हमें',
+  hamein: 'हमें',
+  tumhe: 'तुम्हें',
+  tumhein: 'तुम्हें',
+  aapko: 'आपको',
+  use: 'उसे',
+  usse: 'उससे',
+  usko: 'उसको',
+  unhe: 'उन्हें',
+  unhein: 'उन्हें',
+  unko: 'उनको',
+  isse: 'इससे',
+  isko: 'इसको',
+  inhe: 'इन्हें',
+  inko: 'इनको',
+  kise: 'किसे',
+  kisko: 'किसको',
+  kisne: 'किसने',
+  jisne: 'जिसने',
+  isne: 'इसने',
+  usne: 'उसने',
+  unhone: 'उन्होंने',
+  inhone: 'इन्होंने',
+  maine: 'मैंने',
+  humne: 'हमने',
+  tumne: 'तुमने',
+  aapne: 'आपने',
+  ye: 'ये',
+  yeh: 'ये',
+  wo: 'वो',
+  woh: 'वो',
+  iska: 'इसका',
+  iski: 'इसकी',
+  iske: 'इसके',
+  uska: 'उसका',
+  uski: 'उसकी',
+  uske: 'उसके',
+  inka: 'इनका',
+  inki: 'इनकी',
+  inke: 'इनके',
+  unka: 'उनका',
+  unki: 'उनकी',
+  unke: 'उनके',
+  kiska: 'किसका',
+  kiski: 'किसकी',
+  kiske: 'किसके',
+  jiska: 'जिसका',
+  jiski: 'जिसकी',
+  jiske: 'जिसके',
+  sab: 'सब',
+  sabko: 'सबको',
+  sabhi: 'सभी',
+  sabka: 'सबका',
+  sabki: 'सबकी',
+  sabke: 'सबके',
+  koi: 'कोई',
+  kuch: 'कुछ',
+  kuchh: 'कुछ',
+  kisi: 'किसी',
+
+  // Postpositions
+  mein: 'में',
+  se: 'से',
+  ko: 'को',
+  ka: 'का',
+  ke: 'के',
+  ki: 'की',
+  tak: 'तक',
+  liye: 'लिए',
+  par: 'पर',
+  pe: 'पे',
+  baare: 'बारे',
+  bina: 'बिना',
+  paas: 'पास',
+  saath: 'साथ',
+  sath: 'साथ',
+  door: 'दूर',
+
+  // Auxiliary Verbs / Copulas
+  hai: 'है',
+  hain: 'हैं',
+  hoon: 'हूँ',
+  hun: 'हूँ',
+  ho: 'हो',
+  tha: 'था',
+  thi: 'थी',
+  the: 'थे',
+  hoga: 'होगा',
+  hogi: 'होगी',
+  hoge: 'होगे',
+  honge: 'होंगे',
+  hota: 'होता',
+  hoti: 'होती',
+  hote: 'होते',
+  chahiye: 'चाहिए',
+  sakti: 'सकती',
+  sakta: 'सकता',
+  sakte: 'सकते',
+
+  // Verbs
+  aa: 'आ',
+  aao: 'आओ',
+  aaye: 'आए',
+  aayi: 'आई',
+  aaya: 'आया',
+  aati: 'आती',
+  aata: 'आता',
+  aate: 'आते',
+  aana: 'आना',
+  ja: 'जा',
+  jao: 'जाओ',
+  jaao: 'जाओ',
+  gaya: 'गया',
+  gayi: 'गई',
+  gaye: 'गए',
+  jaata: 'जाता',
+  jaati: 'जाती',
+  jaate: 'जाते',
+  jaana: 'जाना',
+  raha: 'रहा',
+  rahi: 'रही',
+  rahe: 'रहे',
+  rahega: 'रहेगा',
+  rahegi: 'रहेगी',
+  rahenge: 'रहेंगे',
+  kar: 'कर',
+  karo: 'करो',
+  karein: 'करें',
+  karenge: 'करेंगे',
+  karega: 'करेगा',
+  karegi: 'करेगी',
+  karta: 'करता',
+  karti: 'करती',
+  karte: 'करते',
+  karna: 'करना',
+  kiya: 'किया',
+  kiye: 'किए',
+  karke: 'करके',
+  bol: 'बोल',
+  bolo: 'बोलो',
+  boliye: 'बोलिए',
+  bolna: 'बोलना',
+  bola: 'बोला',
+  boli: 'बोली',
+  bata: 'बता',
+  batao: 'बताओ',
+  bataiye: 'बताइए',
+  batana: 'बताना',
+  bataya: 'बताया',
+  suno: 'सुनो',
+  suniye: 'सुनिए',
+  sun: 'सुन',
+  dekho: 'देखो',
+  dekhiye: 'देखिए',
+  dekh: 'देख',
+  dekha: 'देखा',
+  chalo: 'चलो',
+  chaliye: 'चलिए',
+  chal: 'चल',
+  chalte: 'चलते',
+  chalti: 'चलती',
+  chalta: 'चलता',
+  le: 'ले',
+  lo: 'लो',
+  liya: 'लिया',
+  de: 'दे',
+  diya: 'दिया',
+  diye: 'दिए',
+  samajh: 'समझ',
+  samjho: 'समझो',
+  samjha: 'समझा',
+  samjhi: 'समझी',
+  socho: 'सोचो',
+  socha: 'सोचा',
+  poocho: 'पूछो',
+  pucho: 'पूछो',
+  ruko: 'रुको',
+  ruk: 'रुक',
+  baitho: 'बैठो',
+  utho: 'उठो',
+  khao: 'खाओ',
+  piyo: 'पियो',
+
+  // Adverbs, Conjunctions & Particles
+  aaj: 'आज',
+  kal: 'कल',
+  parson: 'परसों',
+  subah: 'सुबह',
+  shaam: 'शाम',
+  dopahar: 'दोपहर',
+  raat: 'रात',
+  din: 'दिन',
+  abhi: 'अभी',
+  kabhi: 'कभी',
+  tabhi: 'तभी',
+  jabhi: 'जभी',
+  pehle: 'पहले',
+  baad: 'बाद',
+  jaldi: 'जल्दी',
+  zyada: 'ज़्यादा',
+  ziyada: 'ज़्यादा',
+  kam: 'कम',
+  thoda: 'थोड़ा',
+  thode: 'थोड़े',
+  thodi: 'थोड़ी',
+  kaafi: 'काफ़ी',
+  kafi: 'काफ़ी',
+  bahut: 'बहुत',
+  bohot: 'बहुत',
+  bilkul: 'बिल्कुल',
+  bas: 'बस',
+  sirf: 'सिर्फ़',
+  kewal: 'केवल',
+  achha: 'अच्छा',
+  accha: 'अच्छा',
+  acha: 'अच्छा',
+  achhi: 'अच्छी',
+  acchi: 'अच्छी',
+  achhe: 'अच्छे',
+  acche: 'अच्छे',
+  bura: 'बुरा',
+  buri: 'बुरी',
+  bure: 'बुरे',
+  sahi: 'सही',
+  galat: 'गलत',
+  theek: 'ठीक',
+  thik: 'ठीक',
+  bhi: 'भी',
+  toh: 'तो',
+  na: 'ना',
+  haan: 'हाँ',
+  ha: 'हाँ',
+  nahi: 'नहीं',
+  nahin: 'नहीं',
+  aur: 'और',
+  ya: 'या',
+  lekin: 'लेकिन',
+  magar: 'मगर',
+  kyonki: 'क्योंकि',
+  kyunki: 'क्योंकि',
+  isliye: 'इसलिए',
+  agar: 'अगर',
+  jab: 'जब',
+  tab: 'तब',
+  ab: 'अब',
+  kab: 'कब',
+  kahan: 'कहाँ',
+  jahan: 'जहाँ',
+  yahan: 'यहाँ',
+  wahan: 'वहाँ',
+  vahan: 'वहाँ',
+  idhar: 'इधर',
+  udhar: 'उधर',
+  kidhar: 'किधर',
+  aise: 'ऐसे',
+  waise: 'वैसे',
+  jaise: 'जैसे',
+  kaise: 'कैसे',
+  kitna: 'कितना',
+  kitne: 'कितने',
+  kitni: 'कितनी',
+  itna: 'इतना',
+  itne: 'इतने',
+  itni: 'इतनी',
+  utna: 'उतना',
+  utne: 'उतने',
+  utni: 'उतनी',
+  kya: 'क्या',
+  kyun: 'क्यों',
+  kyu: 'क्यों',
+  kaun: 'कौन',
+  kon: 'कौन',
+  kaunsa: 'कौनसा',
+  konsa: 'कौनसा',
+  sa: 'सा',
+  si: 'सी',
+  khud: 'खुद',
+
+  // Conversational & Hinglish loanwords
+  namaste: 'नमस्ते',
+  pranam: 'प्रणाम',
+  alvida: 'अलविदा',
+  shukriya: 'शुक्रिया',
+  dhanyavaad: 'धन्यवाद',
+  dhanyawad: 'धन्यवाद',
+  dost: 'दोस्त',
+  doston: 'दोस्तों',
+  dosto: 'दोस्तों',
+  yaar: 'यार',
+  bhai: 'भाई',
+  behen: 'बहन',
+  boss: 'बॉस',
+  naam: 'नाम',
+  kaam: 'काम',
+  baat: 'बात',
+  baatein: 'बातें',
+  khabar: 'खबर',
+  sawal: 'सवाल',
+  jawab: 'जवाब',
+  madad: 'मदद',
+  zaroor: 'ज़रूर',
+  zarur: 'ज़रूर',
+  pata: 'पता',
+  yaad: 'याद',
+  samay: 'समय',
+  waqt: 'वक़्त',
+  saal: 'साल',
+  mahina: 'महीना',
+  mausam: 'मौसम',
+  taapmaan: 'तापमान',
+  barish: 'बारिश',
+  baarish: 'बारिश',
+  dhoop: 'धूप',
+  hawa: 'हवा',
+  badal: 'बादल',
+  baadal: 'बादल',
+  thand: 'ठंड',
+  garmi: 'गर्मी',
+  servers: 'सर्वर्स',
+  server: 'सर्वर',
+  busy: 'बिज़ी',
+  kehna: 'कहना',
+  faisla: 'फ़ैसला',
+  happy: 'हैप्पी',
+  mood: 'मूड',
+  cricket: 'क्रिकेट',
+  match: 'मैच',
+  score: 'स्कोर',
+  wicket: 'विकेट',
+  run: 'रन',
+  runs: 'रन',
+  team: 'टीम',
+  network: 'नेटवर्क',
+  system: 'सिस्टम',
+  update: 'अपडेट',
+  status: 'स्टेटस',
+  weather: 'वेदर',
+  cool: 'कूल',
+  super: 'सुपर',
+  ready: 'रेडी',
+  friend: 'फ्रेंड',
+  friends: 'फ्रेंड्स',
+  problem: 'प्रॉब्लम',
+  tension: 'टेंशन',
+  please: 'प्लीज़',
+  thanks: 'थैंक्स',
+  sorry: 'सॉरी',
+  tia: 'टिया',
+};
+
+/**
+ * Determines whether text is Hindi or Hinglish context for speech normalization.
+ */
+export function isHindiOrHinglish(
+  text: string,
+  detectedLanguage?: 'hindi' | 'hinglish' | 'english'
+): boolean {
+  if (!text) return false;
+  // If explicitly tagged English and contains no Devanagari script, keep strictly English
+  if (detectedLanguage === 'english' && !hasDevanagariScript(text)) {
+    return false;
+  }
+  if (detectedLanguage === 'hindi' || detectedLanguage === 'hinglish') {
+    return true;
+  }
+  if (hasDevanagariScript(text)) {
+    return true;
+  }
+  const hindiPattern =
+    /\b(aaj|kal|main|mera|meri|mere|mujhe|aap|aapka|aapki|aapke|aapko|tum|tumhe|tumhara|tumhari|tumhare|hai|hain|hoon|kya|kyun|kaise|mein|zyada|thode|thoda|thodi|kaafi|achha|accha|saath|chalo|rahi|raha|rahe|nahi|nahin|bahut|bohot|bilkul|yeh|woh|karo|batao|suno|dekho)\b/i;
+  return hindiPattern.test(text);
+}
+
+/**
+ * Speech-only normalization layer for Roman Hindi / Hinglish.
+ * Converts ambiguous Roman Hindi words into unambiguous Devanagari before TTS
+ * so native Hindi engines (like Google Hindi) enunciate correctly (e.g. Hindi particle "hi"
+ * as "ही", NOT English greeting "high"/"हाय").
+ *
+ * Rules:
+ * - Does NOT modify displayed text in chat UI.
+ * - Does NOT convert pure English sentences to Hindi.
+ * - Preserves English loanwords and brand names where appropriate.
+ * - Distinguishes between English greeting "Hi" and Hindi emphatic particle "hi" ("ही").
+ * - Does NOT break words such as "this", "think", "history", or "high".
+ * - Runs in sub-millisecond local memory without latency.
+ */
+export function normalizeRomanHindiForSpeech(
+  text: string,
+  detectedLanguage?: 'hindi' | 'hinglish' | 'english'
+): string {
+  if (!text) return '';
+  if (!isHindiOrHinglish(text, detectedLanguage)) {
+    return text;
+  }
+
+  // Tokenize word boundaries and map known Hindi words
+  let normalized = text.replace(/\b([a-zA-Z]+)\b/g, (match, word, offset, fullStr) => {
+    const lower = word.toLowerCase();
+
+    // Context-sensitive resolution for "hi":
+    // 1. If at start of sentence, clause, or after sentence punctuation -> English greeting "Hi" (/haɪ/)
+    // 2. If preceded by another word in a Hindi sentence -> Hindi emphatic particle "ही" (/hiː/)
+    if (lower === 'hi') {
+      const before = fullStr.slice(0, offset).trim();
+      if (!before || /[.!?।॥:]\s*$/.test(before)) {
+        return word; // Keep greeting as "Hi"
+      }
+      return 'ही';
+    }
+
+    if (HINDI_ROMAN_TO_DEVANAGARI[lower]) {
+      return HINDI_ROMAN_TO_DEVANAGARI[lower];
+    }
+
+    return word;
+  });
+
+  // Convert English full stop "." at end of Hindi sentence to authentic Devanagari Danda "।"
+  normalized = normalized.replace(/([\u0900-\u097F])\s*\.(?=\s|$)/g, '$1।');
+
+  return normalized;
+}
+
+/**
  * Cleans and conditions text before sending it to speech synthesis.
  * Strips markdown symbols, URLs, and code blocks.
+ * Applies speech-only normalization for Roman Hindi words to Devanagari.
  * Expands common Indian abbreviations, decimals, and units so speech synthesizers enunciate cleanly.
  */
-export function cleanTextForSpeech(text: string): string {
+export function cleanTextForSpeech(
+  text: string,
+  detectedLanguage?: 'hindi' | 'hinglish' | 'english'
+): string {
   if (!text) return '';
 
   // Canonical safety: Strip any JSON wrappers, double-encoded JSON, or residual {"reply": wrappers
@@ -230,8 +694,6 @@ export function cleanTextForSpeech(text: string): string {
 
   // Canonical Unicode NFC normalization for composed Devanagari characters
   cleaned = cleaned.normalize('NFC');
-
-  const isHindiContext = hasDevanagariScript(cleaned);
 
   // 1. Initial cleanup of markdown blocks and list markers
   cleaned = cleaned
@@ -250,10 +712,17 @@ export function cleanTextForSpeech(text: string): string {
     .replace(/^[-*+]\s+/gm, '')
     .replace(/^\d+\.\s+/gm, '');
 
-  // 2. TTS-only normalization for decimal numbers and temperature units
+  // 2. Speech-only normalization for Roman Hindi / Hinglish to unambiguous Devanagari.
+  // Converts ambiguous Roman Hindi words into Devanagari before TTS so native Hindi engines
+  // (like Google Hindi) enunciate correctly (e.g. Hindi particle 'hi' as 'ही', NOT English greeting 'high'/'हाय').
+  cleaned = normalizeRomanHindiForSpeech(cleaned, detectedLanguage);
+
+  // 3. TTS-only normalization for decimal numbers and temperature units
   cleaned = normalizeDecimalsForSpeech(cleaned);
 
-  // 3. Currency and symbol expansions
+  const isHindiContext = hasDevanagariScript(cleaned);
+
+  // 4. Currency and symbol expansions
   if (isHindiContext) {
     cleaned = cleaned
       .replace(/₹\s*(\d+(?:\s*पॉइंट\s*\d+)?)/g, '$1 रुपये')
@@ -613,6 +1082,30 @@ export function devanagariToPhoneticLatin(text: string): string {
     'बादल': 'baadal',
     'टिया': 'Tia',
     'बॉस': 'boss',
+    'ही': 'hee',
+    'भी': 'bhee',
+    'थोड़ा': 'thoda',
+    'थोड़े': 'thode',
+    'थोड़ी': 'thodi',
+    'काफ़ी': 'kaafi',
+    'काफी': 'kaafi',
+    'साथ': 'saath',
+    'चलो': 'chalo',
+    'अभी': 'abhi',
+    'रही': 'rahi',
+    'रहा': 'raha',
+    'रहे': 'rahe',
+    'सर्वर्स': 'servers',
+    'सर्वर': 'server',
+    'हैप्पी': 'happy',
+    'मूड': 'mood',
+    'में': 'mein',
+    'मैं': 'main',
+    'तुम': 'tum',
+    'आप': 'aap',
+    'हम': 'hum',
+    'ये': 'ye',
+    'वो': 'wo',
   };
 
   return s.replace(/[\u0900-\u097F]+/g, (chunk) => {
@@ -889,7 +1382,7 @@ export function speakEmotionally({
     }
   }
 
-  const cleaned = cleanTextForSpeech(text);
+  const cleaned = cleanTextForSpeech(text, detectedLanguage);
   if (!cleaned) {
     onEnd?.();
     return { cancel: () => {} };
