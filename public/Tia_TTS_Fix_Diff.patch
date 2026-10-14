@@ -1,0 +1,219 @@
+# ====================================================================
+# TIA TTS CONFIGURATION & RELIABILITY FIX PATCH
+# ====================================================================
+#
+# Changes applied in this fix turn:
+# 1. server/ttsHandler.ts:
+#    - Added resolveProviderAndVoice() guaranteeing TTS_PROVIDER environment variable
+#      is strictly respected on server unless overridden by explicit client choice.
+#    - Mapped voice IDs bidirectionally (Gemini voices <-> Google Cloud Chirp 3 HD format),
+#      preventing bare 'Aoede' sent to GCP or GCP voice names sent to Gemini.
+#    - Removed unconditional benchmark sample interception from live synthesis path;
+#      samples only served when isSamplePreview: true.
+#    - Segregated LRU cache keys by provider + voiceId + emotion + text.
+#    - Prevented silent routing to unintended providers if credentials are missing.
+# 2. src/types.ts:
+#    - Added ttsProvider?: 'browser' | 'gemini' | 'google-cloud' | 'auto' to TiaSettings.
+# 3. src/services/speechSynthesis.ts:
+#    - Added provider parameter to speakWithPremiumVoice() and included in POST /api/tts.
+#    - Added 4500ms client-side AbortController timeout guard to prevent hung requests.
+# 4. src/App.tsx:
+#    - Passed provider: settings.ttsProvider || 'auto' to speakWithPremiumVoice().
+#
+# ====================================================================
+
+--- a/src/types.ts
++++ b/src/types.ts
+@@ -72,6 +72,7 @@ export interface TiaSettings {
+   wakeChimeEnabled: boolean;
+   // Voice engine & premium voice selection
+   ttsEngine?: 'browser' | 'premium';
++  ttsProvider?: 'browser' | 'gemini' | 'google-cloud' | 'auto';
+   premiumVoiceId?: string;
+ }
+
+--- a/src/services/speechSynthesis.ts
++++ b/src/services/speechSynthesis.ts
+@@ -1807,6 +1807,7 @@ export function stopAllSpeech() {
+ export function speakWithPremiumVoice({
+   text,
+   voiceId = 'Aoede',
++  provider = 'auto',
+   emotion = 'neutral',
+   detectedLanguage = 'hinglish',
+   baseRate = 1.0,
+@@ -1816,6 +1817,7 @@ export function speakWithPremiumVoice({
+ }: {
+   text: string;
+   voiceId?: string;
++  provider?: 'browser' | 'gemini' | 'google-cloud' | 'auto';
+   emotion?: TiaEmotion;
+   detectedLanguage?: 'hindi' | 'hinglish' | 'english';
+   baseRate?: number;
+@@ -1841,9 +1843,14 @@ export function speakWithPremiumVoice({
+   let isCancelled = false;
+   let fallbackSession: SpeechSessionController | null = null;
+   const abortController = new AbortController();
++  let clientTimeoutTimer: ReturnType<typeof setTimeout> | null = null;
+ 
+   const cancel = () => {
+     isCancelled = true;
++    if (clientTimeoutTimer) {
++      clearTimeout(clientTimeoutTimer);
++      clientTimeoutTimer = null;
++    }
+     abortController.abort();
+     stopAnyActiveAudio();
+     if (fallbackSession) {
+@@ -1853,6 +1860,14 @@ export function speakWithPremiumVoice({
+ 
+   (async () => {
+     try {
++      // 4500ms safety timer on client fetch
++      clientTimeoutTimer = setTimeout(() => {
++        if (!isCancelled) {
++          console.warn('[TTS] Client request timeout reached; aborting fetch to trigger fallback');
++          abortController.abort();
++        }
++      }, 4500);
++
+       const res = await fetch('/api/tts', {
+         method: 'POST',
+         headers: { 'Content-Type': 'application/json' },
+@@ -1863,6 +1878,7 @@ export function speakWithPremiumVoice({
+           text: cleaned,
+           voiceId,
++          provider,
+           emotion,
+           detectedLanguage,
+         }),
+@@ -1869,6 +1885,11 @@ export function speakWithPremiumVoice({
+         signal: abortController.signal,
+       });
+ 
++      if (clientTimeoutTimer) {
++        clearTimeout(clientTimeoutTimer);
++        clientTimeoutTimer = null;
++      }
++
+       if (!res.ok) {
+         throw new Error(`TTS server HTTP ${res.status}`);
+       }
+
+--- a/src/App.tsx
++++ b/src/App.tsx
+@@ -542,6 +542,8 @@ export function App() {
+         const premiumLabel =
+           settings.premiumVoiceId === 'Kore'
+             ? 'Tia Premium (Kore)'
++            : settings.premiumVoiceId?.includes('Chirp')
++            ? 'Tia Chirp 3 HD'
+             : 'Tia Premium (Aoede)';
+         setCurrentVoiceName(premiumLabel);
+ 
+@@ -548,6 +550,7 @@ export function App() {
+         speechSessionRef.current = speakWithPremiumVoice({
+           text: textToSpeak,
+           voiceId: settings.premiumVoiceId || 'Aoede',
++          provider: settings.ttsProvider || 'auto',
+           emotion,
+           detectedLanguage,
+           baseRate: settings.speechRate,
+
+--- a/server/ttsHandler.ts
++++ b/server/ttsHandler.ts
+@@ -16,8 +16,8 @@ interface CachedAudio {
+-function getCacheKey(text: string, voiceId: string, emotion: string): string {
+-  return `${voiceId}:${emotion}:${text.trim().toLowerCase()}`;
++function getCacheKey(provider: string, voiceId: string, emotion: string, text: string): string {
++  return `${provider.toLowerCase()}:${voiceId.toLowerCase()}:${emotion.toLowerCase()}:${text.trim().toLowerCase()}`;
+ }
+ 
+-function addToCache(key: string, data: string, mimeType: string) {
++function addToCache(key: string, data: string, mimeType: string, provider: string, voiceId: string) {
+@@ -77,6 +77,75 @@ export const PREMIUM_VOICE_CATALOG: TTSVoiceMeta[] = [
++export function resolveProviderAndVoice(
++  clientProvider?: string,
++  clientVoiceId?: string,
++  detectedLanguage: string = 'hinglish'
++): {
++  provider: 'browser' | 'gemini' | 'google-cloud';
++  voiceId: string;
++  sourceOfProvider: 'client' | 'env' | 'auto-fallback';
++} {
++  const envProvider = (process.env.TTS_PROVIDER || '').trim().toLowerCase();
++  const envVoiceId = (process.env.TTS_VOICE_ID || '').trim();
++  let provider: 'browser' | 'gemini' | 'google-cloud' = 'browser';
++  let sourceOfProvider: 'client' | 'env' | 'auto-fallback' = 'auto-fallback';
++
++  if (clientProvider && clientProvider !== 'auto') {
++    if (clientProvider === 'gemini' || clientProvider === 'google-cloud' || clientProvider === 'browser') {
++      provider = clientProvider;
++      sourceOfProvider = 'client';
++    }
++  } else if (envProvider) {
++    if (envProvider === 'gemini' || envProvider === 'google-cloud' || envProvider === 'browser') {
++      provider = envProvider as any;
++      sourceOfProvider = 'env';
++    }
++  } else {
++    provider = 'browser';
++    sourceOfProvider = 'auto-fallback';
++  }
++
++  const candidateVoice = clientVoiceId?.trim() || envVoiceId || 'Aoede';
++  let finalVoiceId = candidateVoice;
++
++  if (provider === 'gemini') {
++    finalVoiceId = candidateVoice.toLowerCase().includes('kore') ? 'Kore' : 'Aoede';
++  } else if (provider === 'google-cloud') {
++    const isEnglish = detectedLanguage === 'english';
++    const langPrefix = isEnglish ? 'en-IN' : 'hi-IN';
++    if (candidateVoice.toLowerCase() === 'kore') {
++      finalVoiceId = `${langPrefix}-Chirp3-HD-Kore`;
++    } else if (candidateVoice.toLowerCase() === 'aoede') {
++      finalVoiceId = `${langPrefix}-Chirp3-HD-Aoede`;
++    } else if (candidateVoice.includes('Chirp3-HD')) {
++      finalVoiceId = candidateVoice;
++    } else {
++      finalVoiceId = `${langPrefix}-Chirp3-HD-Aoede`;
++    }
++  }
++  return { provider, voiceId: finalVoiceId, sourceOfProvider };
++}
+@@ -235,55 +235,50 @@ export async function handleTTSRequest(req: any, res: any) {
+-    const cacheKey = getCacheKey(cleanText, voiceId, emotion);
++    const resolution = resolveProviderAndVoice(requestedProvider, requestedVoice, detectedLanguage);
++    const { provider, voiceId, sourceOfProvider } = resolution;
++
++    // Only serve pre-rendered sample when EXPLICITLY requested as sample preview
++    if (isSamplePreview) {
++      // Return static sample preview from public/audio_samples
++    }
++
++    if (provider === 'browser') {
++      return sendJson(res, 200, {
++        success: false,
++        fallbackToBrowser: true,
++        reason: 'Browser voice selected as active engine',
++        provider: 'browser',
++      });
++    }
++
++    if (provider === 'google-cloud' && !googleCloudKey) {
++      return sendJson(res, 200, {
++        success: false,
++        fallbackToBrowser: true,
++        error: 'GOOGLE_CLOUD_TTS_API_KEY is not configured on server',
++        provider: 'google-cloud',
++      });
++    }
++
++    if (provider === 'gemini' && !geminiKey) {
++      return sendJson(res, 200, {
++        success: false,
++        fallbackToBrowser: true,
++        error: 'GEMINI_API_KEY is not configured on server',
++        provider: 'gemini',
++      });
++    }

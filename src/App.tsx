@@ -9,6 +9,7 @@ import type {
   AuthSession,
   UserProfile,
   TiaLocalProfile,
+  TTSLiveStatus,
 } from './types';
 import { Header } from './components/Header';
 import { VoiceOrb } from './components/VoiceOrb';
@@ -32,6 +33,7 @@ import {
   speakEmotionally,
   speakWithPremiumVoice,
   stopAnyActiveAudio,
+  fetchTTSStatus,
   type SpeechSessionController,
 } from './services/speechSynthesis';
 import {
@@ -63,6 +65,7 @@ const DEFAULT_SETTINGS: TiaSettings = {
   followUpTimeoutSeconds: 4,
   wakeChimeEnabled: true,
   ttsEngine: 'browser',
+  ttsProvider: 'browser',
   premiumVoiceId: 'Aoede',
 };
 
@@ -95,13 +98,20 @@ export default function App() {
     try {
       const stored = localStorage.getItem('tia_settings');
       if (stored) {
-        return { ...DEFAULT_SETTINGS, ...JSON.parse(stored) };
+        const parsed = JSON.parse(stored);
+        // Automatic migration: if user previously selected premium, ensure ttsProvider is synced to gemini or google-cloud
+        if (parsed.ttsEngine === 'premium' && (!parsed.ttsProvider || parsed.ttsProvider === 'auto')) {
+          parsed.ttsProvider = parsed.premiumVoiceId?.includes('Chirp') ? 'google-cloud' : 'gemini';
+        }
+        return { ...DEFAULT_SETTINGS, ...parsed };
       }
     } catch {
       // ignore
     }
     return DEFAULT_SETTINGS;
   });
+
+  const [ttsLiveStatus, setTtsLiveStatus] = useState<TTSLiveStatus | null>(null);
 
   const [assistantState, setAssistantState] = useState<AssistantState>('idle');
   const [messages, setMessages] = useState<Message[]>([]);
@@ -333,6 +343,17 @@ export default function App() {
     };
   }, []);
 
+  // Fetch initial live TTS health and configuration status on app start
+  useEffect(() => {
+    fetchTTSStatus()
+      .then((status) => {
+        setTtsLiveStatus(status);
+      })
+      .catch(() => {
+        // ignore
+      });
+  }, []);
+
   // Persist settings
   useEffect(() => {
     try {
@@ -542,12 +563,22 @@ export default function App() {
         const premiumLabel =
           settings.premiumVoiceId === 'Kore'
             ? 'Tia Premium (Kore)'
+            : settings.premiumVoiceId?.includes('Chirp')
+            ? 'Tia Chirp 3 HD'
             : 'Tia Premium (Aoede)';
         setCurrentVoiceName(premiumLabel);
+
+        const targetProvider =
+          settings.ttsProvider && settings.ttsProvider !== 'auto'
+            ? settings.ttsProvider
+            : settings.premiumVoiceId?.includes('Chirp')
+            ? 'google-cloud'
+            : 'gemini';
 
         speechSessionRef.current = speakWithPremiumVoice({
           text: textToSpeak,
           voiceId: settings.premiumVoiceId || 'Aoede',
+          provider: targetProvider,
           emotion,
           detectedLanguage,
           baseRate: settings.speechRate,
@@ -555,6 +586,14 @@ export default function App() {
           onStart: handleSpeechStart,
           onEnd: handleSpeechEnd,
           onError: handleSpeechError,
+          onStatusChange: (status) => {
+            setTtsLiveStatus(status);
+            if (status.state === 'browser-fallback' || status.state === 'config-required') {
+              setCurrentVoiceName(`${voiceLabel} (${status.label || 'Browser Fallback'})`);
+            } else if (status.state === 'premium-ready') {
+              setCurrentVoiceName(premiumLabel);
+            }
+          },
         });
       } else {
         setCurrentVoiceName(voiceLabel);
@@ -578,6 +617,7 @@ export default function App() {
       settings.selectedVoiceURI,
       settings.speechRate,
       settings.ttsEngine,
+      settings.ttsProvider,
       settings.premiumVoiceId,
       clearFollowUpTimer,
       clearQuestionWaitTimer,
@@ -702,6 +742,15 @@ export default function App() {
           text: replyContent,
         });
 
+        const activeVoiceLabel =
+          settings.ttsEngine === 'premium'
+            ? settings.premiumVoiceId === 'Kore'
+              ? 'Tia Premium (Kore)'
+              : settings.premiumVoiceId?.includes('Chirp')
+              ? 'Tia Chirp 3 HD'
+              : 'Tia Premium (Aoede)'
+            : voiceLabel;
+
         const tiaMsg: Message = {
           id: `tia-${Date.now()}`,
           role: 'assistant',
@@ -709,7 +758,7 @@ export default function App() {
           timestamp: Date.now(),
           model: data.model,
           emotion: replyEmotion,
-          voiceName: voiceLabel,
+          voiceName: activeVoiceLabel,
           detectedLanguage: detectedLang,
           sources: Array.isArray(data.sources) ? data.sources : undefined,
         };
@@ -757,6 +806,9 @@ export default function App() {
       settings.languagePreference,
       settings.autoVoiceSelection,
       settings.selectedVoiceURI,
+      settings.ttsEngine,
+      settings.premiumVoiceId,
+      settings.ttsProvider,
       speakResponse,
       stopSpeech,
       clearFollowUpTimer,
@@ -1830,6 +1882,8 @@ export default function App() {
           currentVoiceLabel={currentVoiceName}
           followUpRemainingSeconds={followUpRemaining}
           handsFreeMode={settings.handsFreeMode}
+          ttsEngine={settings.ttsEngine}
+          ttsLiveStatus={ttsLiveStatus}
         />
 
         {/* Minimalist Spoken Conversation Preview */}

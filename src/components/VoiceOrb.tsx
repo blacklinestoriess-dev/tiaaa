@@ -1,5 +1,5 @@
 import React from 'react';
-import type { AssistantState, TiaEmotion } from '../types';
+import type { AssistantState, TiaEmotion, TTSLiveStatus } from '../types';
 import { Mic, Sparkles, Volume2 } from 'lucide-react';
 import { getEmotionVisualMeta } from '../services/speechSynthesis';
 
@@ -11,6 +11,8 @@ interface VoiceOrbProps {
   currentVoiceLabel?: string;
   followUpRemainingSeconds?: number;
   handsFreeMode?: boolean;
+  ttsEngine?: 'browser' | 'premium';
+  ttsLiveStatus?: TTSLiveStatus | null;
 }
 
 export const VoiceOrb: React.FC<VoiceOrbProps> = ({
@@ -21,6 +23,8 @@ export const VoiceOrb: React.FC<VoiceOrbProps> = ({
   currentVoiceLabel,
   followUpRemainingSeconds,
   handsFreeMode = true,
+  ttsEngine,
+  ttsLiveStatus,
 }) => {
   const emotionMeta = getEmotionVisualMeta(emotion);
 
@@ -218,6 +222,30 @@ export const VoiceOrb: React.FC<VoiceOrbProps> = ({
           <p className="text-[11px] text-slate-400 font-mono tracking-tight">
             Voice: {currentVoiceLabel}
           </p>
+        )}
+
+        {/* Non-intrusive Engine Status Indicator when Premium Studio is enabled */}
+        {ttsEngine === 'premium' && (
+          <div className="pt-0.5 flex justify-center">
+            {ttsLiveStatus?.state === 'browser-fallback' && (
+              <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/20 text-[10px] text-amber-300 font-medium">
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+                <span>{ttsLiveStatus.label || 'Browser Fallback (Quota 429)'}</span>
+              </span>
+            )}
+            {ttsLiveStatus?.state === 'config-required' && (
+              <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-full bg-rose-500/10 border border-rose-500/20 text-[10px] text-rose-300 font-medium">
+                <span className="w-1.5 h-1.5 rounded-full bg-rose-400" />
+                <span>Config Required • Browser Voice Active</span>
+              </span>
+            )}
+            {ttsLiveStatus?.state === 'premium-ready' && (
+              <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-[10px] text-emerald-300 font-medium">
+                <Sparkles className="w-2.5 h-2.5 text-emerald-400" />
+                <span>Studio HD Live</span>
+              </span>
+            )}
+          </div>
         )}
       </div>
     </div>

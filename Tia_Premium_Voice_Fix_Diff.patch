@@ -1,0 +1,275 @@
+--- a/server/ttsHandler.ts
++++ b/server/ttsHandler.ts
+@@ -490,7 +490,7 @@
+       });
+     }
+ 
+-    // 6. Attempt live synthesis with 4000ms timeout guard
++    // 6. Attempt live synthesis with 9000ms timeout guard (allows natural complete answers)
+     const synthesisPromise = (async () => {
+       if (provider === 'google-cloud') {
+         return await synthesizeWithGoogleCloud(cleanText, voiceId);
+@@ -501,7 +501,7 @@
+     })();
+ 
+     const timeoutPromise = new Promise<never>((_, reject) =>
+-      setTimeout(() => reject(new Error('TTS request timed out after 4000ms')), 4000)
++      setTimeout(() => reject(new Error('TTS request timed out after 9000ms')), 9000)
+     );
+ 
+     const result = await Promise.race([synthesisPromise, timeoutPromise]);
+@@ -538,7 +538,9 @@
+       voiceId: 'Aoede',
+       success: false,
+       isQuotaExceeded: Boolean(isQuota),
+-      error: isQuota ? 'Gemini TTS daily quota limit reached (HTTP 429)' : (err?.message || 'Synthesis failed'),
++      error: isQuota
++        ? 'Gemini TTS daily quota limit reached (HTTP 429)'
++        : (err?.message || 'Synthesis failed'),
+     };
+ 
+     console.warn(
+@@ -547,8 +549,12 @@
+     return sendJson(res, 200, {
+       success: false,
+       fallbackToBrowser: true,
+-      error: isQuota ? 'Gemini TTS daily quota limit reached (HTTP 429)' : (err?.message || 'Synthesis failed'),
+-      isQuotaExceeded: Boolean(isQuota),
++      error: isQuota
++        ? 'Gemini TTS daily quota limit reached (HTTP 429)'
++        : (err?.message || 'Synthesis failed'),
++      isQuotaExceeded: Boolean(isQuota),
++      provider: 'gemini',
++      voiceId: 'Aoede',
+     });
+   }
+ }
+@@ -596,7 +602,11 @@
+       statusMessage = lastSynthesisRecord.error || 'Temporary browser fallback active';
+     }
+   } else {
+-    if (hasGeminiKey) {
++    if (envProvider === 'google-cloud' && !hasGoogleCloudKey) {
++      statusState = 'config-required';
++      statusLabel = 'Configuration Required';
++      statusMessage = 'Google Cloud Chirp 3 HD requires GOOGLE_CLOUD_TTS_API_KEY in server environment';
++    } else if (hasGeminiKey) {
+       statusState = 'premium-ready';
+       statusLabel = 'Premium Ready';
+       statusMessage = 'Gemini 3.8 Flash Lite TTS ready (Aoede & Kore)';
+@@ -606,7 +616,7 @@
+     } else {
+       statusState = 'config-required';
+       statusLabel = 'Configuration Required';
+-      statusMessage = 'Google Cloud TTS API key not configured';
++      statusMessage = 'Cloud TTS API keys not configured on server';
+     }
+   }
+ 
+--- a/src/services/speechSynthesis.ts
++++ b/src/services/speechSynthesis.ts
+@@ -1866,13 +1866,13 @@
+ 
+   (async () => {
+     try {
+-      // 4500ms safety timer on client fetch
++      // 10000ms safety timer on client fetch (allows natural complete answers from Gemini)
+       clientTimeoutTimer = setTimeout(() => {
+         if (!isCancelled) {
+-          console.warn('[TTS] Client request timeout reached; aborting fetch to trigger fallback');
++          console.warn('[TTS] Client request timeout reached (10s); aborting fetch to trigger fallback');
+           abortController.abort();
+         }
+-      }, 4500);
++      }, 10000);
+ 
+       const res = await fetch('/api/tts', {
+         method: 'POST',
+@@ -1959,7 +1959,7 @@
+ 
+         await audio.play();
+       } else {
+-        // Fallback flag returned by server (e.g. rate limit or browser selected)
++        // Fallback flag returned by server (e.g. rate limit, missing key, or browser selected)
+         console.log('[TTS] Server suggested fallback to browser engine:', data.reason || data.error);
+         if (data.isQuotaExceeded) {
+           onStatusChange?.({
+@@ -1973,7 +1973,7 @@
+           onStatusChange?.({
+             state: 'config-required',
+             label: 'Configuration Required',
+-            details: data.error,
++            details: data.error || 'Google Cloud Chirp 3 HD requires GOOGLE_CLOUD_TTS_API_KEY on the server',
+             provider: data.provider || 'google-cloud',
+             voiceId,
+             lastChecked: Date.now(),
+@@ -2001,12 +2001,15 @@
+         });
+       }
+     } catch (err: any) {
+-      if (err.name === 'AbortError' || isCancelled) return;
+-      console.warn('[TTS] Network error or timeout, falling back to browser voice:', err?.message);
++      if (isCancelled) return;
++      const isAbort = err?.name === 'AbortError';
++      console.warn('[TTS] Network notice or timeout, falling back to browser voice:', err?.message || err);
+       onStatusChange?.({
+         state: 'browser-fallback',
+-        label: 'Browser Fallback Active',
+-        details: err?.message || 'Network error falling back to browser voice',
++        label: isAbort ? 'Browser Fallback (Timeout)' : 'Browser Fallback Active',
++        details: isAbort
++          ? 'Studio speech generation timed out (>10s) — safely using device browser voice'
++          : (err?.message || 'Network error falling back to browser voice'),
+         provider: 'browser',
+         voiceId,
+         lastChecked: Date.now(),
+--- a/src/App.tsx
++++ b/src/App.tsx
+@@ -586,7 +586,14 @@
+           fallbackVoice: voice,
+           onStart: handleSpeechStart,
+           onEnd: handleSpeechEnd,
+           onError: handleSpeechError,
+-          onStatusChange: (status) => setTtsLiveStatus(status),
++          onStatusChange: (status) => {
++            setTtsLiveStatus(status);
++            if (status.state === 'browser-fallback' || status.state === 'config-required') {
++              setCurrentVoiceName(`${voiceLabel} (${status.label || 'Browser Fallback'})`);
++            } else if (status.state === 'premium-ready') {
++              setCurrentVoiceName(premiumLabel);
++            }
++          },
+         });
+       } else {
+         setCurrentVoiceName(voiceLabel);
+@@ -609,6 +616,7 @@
+       settings.selectedVoiceURI,
+       settings.speechRate,
+       settings.ttsEngine,
++      settings.ttsProvider,
+       settings.premiumVoiceId,
+       clearFollowUpTimer,
+       clearQuestionWaitTimer,
+@@ -742,6 +750,15 @@
+           text: replyContent,
+         });
+ 
++        const activeVoiceLabel =
++          settings.ttsEngine === 'premium'
++            ? settings.premiumVoiceId === 'Kore'
++              ? 'Tia Premium (Kore)'
++              : settings.premiumVoiceId?.includes('Chirp')
++              ? 'Tia Chirp 3 HD'
++              : 'Tia Premium (Aoede)'
++            : voiceLabel;
++
+         const tiaMsg: Message = {
+           id: `tia-${Date.now()}`,
+           role: 'assistant',
+@@ -748,7 +765,7 @@
+           timestamp: Date.now(),
+           model: data.model,
+           emotion: replyEmotion,
+-          voiceName: voiceLabel,
++          voiceName: activeVoiceLabel,
+           detectedLanguage: detectedLang,
+           sources: Array.isArray(data.sources) ? data.sources : undefined,
+         };
+@@ -795,6 +812,9 @@
+       settings.languagePreference,
+       settings.autoVoiceSelection,
+       settings.selectedVoiceURI,
++      settings.ttsEngine,
++      settings.premiumVoiceId,
++      settings.ttsProvider,
+       speakResponse,
+       stopSpeech,
+       clearFollowUpTimer,
+@@ -1882,6 +1902,8 @@
+           currentVoiceLabel={currentVoiceName}
+           followUpRemainingSeconds={followUpRemaining}
+           handsFreeMode={settings.handsFreeMode}
++          ttsEngine={settings.ttsEngine}
++          ttsLiveStatus={ttsLiveStatus}
+         />
+ 
+         {/* Minimalist Spoken Conversation Preview */}
+--- a/src/components/VoiceOrb.tsx
++++ b/src/components/VoiceOrb.tsx
+@@ -1,5 +1,5 @@
+ import React from 'react';
+-import type { AssistantState, TiaEmotion } from '../types';
++import type { AssistantState, TiaEmotion, TTSLiveStatus } from '../types';
+ import { Mic, Sparkles, Volume2 } from 'lucide-react';
+ import { getEmotionVisualMeta } from '../services/speechSynthesis';
+ 
+@@ -10,6 +10,8 @@
+   currentVoiceLabel?: string;
+   followUpRemainingSeconds?: number;
+   handsFreeMode?: boolean;
++  ttsEngine?: 'browser' | 'premium';
++  ttsLiveStatus?: TTSLiveStatus | null;
+ }
+ 
+ export const VoiceOrb: React.FC<VoiceOrbProps> = ({
+@@ -19,6 +21,8 @@
+   currentVoiceLabel,
+   followUpRemainingSeconds,
+   handsFreeMode = true,
++  ttsEngine,
++  ttsLiveStatus,
+ }) => {
+   const emotionMeta = getEmotionVisualMeta(emotion);
+@@ -223,6 +227,30 @@
+             Voice: {currentVoiceLabel}
+           </p>
+         )}
++
++        {/* Non-intrusive Engine Status Indicator when Premium Studio is enabled */}
++        {ttsEngine === 'premium' && (
++          <div className="pt-0.5 flex justify-center">
++            {ttsLiveStatus?.state === 'browser-fallback' && (
++              <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/20 text-[10px] text-amber-300 font-medium">
++                <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
++                <span>{ttsLiveStatus.label || 'Browser Fallback (Quota 429)'}</span>
++              </span>
++            )}
++            {ttsLiveStatus?.state === 'config-required' && (
++              <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-full bg-rose-500/10 border border-rose-500/20 text-[10px] text-rose-300 font-medium">
++                <span className="w-1.5 h-1.5 rounded-full bg-rose-400" />
++                <span>Config Required • Browser Voice Active</span>
++              </span>
++            )}
++            {ttsLiveStatus?.state === 'premium-ready' && (
++              <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-[10px] text-emerald-300 font-medium">
++                <Sparkles className="w-2.5 h-2.5 text-emerald-400" />
++                <span>Studio HD Live</span>
++              </span>
++            )}
++          </div>
++        )}
+       </div>
+     </div>
+   );
+--- a/src/components/SettingsModal.tsx
++++ b/src/components/SettingsModal.tsx
+@@ -982,10 +982,15 @@
+             {/* Pronunciation & Voice Evaluation Benchmark Test Suite */}
+             <div className="pt-2.5 border-t border-white/5 space-y-2">
+               <div className="flex items-center justify-between">
+-                <span className="text-xs font-semibold text-slate-300">
+-                  Evaluation Sentences (Pronunciation Tests)
+-                </span>
+-                <span className="text-[10px] text-slate-400">
++                <div>
++                  <span className="text-xs font-semibold text-slate-300">
++                    Benchmark Reference Audio (Pre-rendered)
++                  </span>
++                  <p className="text-[10px] text-slate-400">
++                    Pre-rendered studio recordings illustrating pronunciation quality (does not call live API)
++                  </p>
++                </div>
++                <span className="text-[10px] text-slate-400 shrink-0">
+                   Click to listen
+                 </span>
+               </div>

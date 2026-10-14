@@ -1,0 +1,5 @@
+{
+  "summary": "Detailed audit and fix report for Tia TTS resolving configuration mismatches, provider resolution precedence, voice compatibility mapping, isolated cache keys, sample preview isolation, and timeout safeguards.",
+  "updatedAt": "2026-10-13T15:09:21.442736844Z",
+  "userFacing": true
+}

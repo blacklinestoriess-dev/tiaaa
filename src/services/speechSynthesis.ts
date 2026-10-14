@@ -2,6 +2,7 @@ import type {
   SpeechVoiceOption,
   TiaEmotion,
   VoiceSelectionCriteria,
+  TTSLiveStatus,
 } from '../types';
 import { normalizeAssistantResponse } from '../utils/responseNormalizer';
 
@@ -1807,6 +1808,7 @@ export function stopAllSpeech() {
 export function speakWithPremiumVoice({
   text,
   voiceId = 'Aoede',
+  provider = 'auto',
   emotion = 'neutral',
   detectedLanguage = 'hinglish',
   baseRate = 1.0,
@@ -1814,9 +1816,11 @@ export function speakWithPremiumVoice({
   onStart,
   onEnd,
   onError,
+  onStatusChange,
 }: {
   text: string;
   voiceId?: string;
+  provider?: 'browser' | 'gemini' | 'google-cloud' | 'auto';
   emotion?: TiaEmotion;
   detectedLanguage?: 'hindi' | 'hinglish' | 'english';
   baseRate?: number;
@@ -1824,6 +1828,7 @@ export function speakWithPremiumVoice({
   onStart?: () => void;
   onEnd?: () => void;
   onError?: (err: unknown) => void;
+  onStatusChange?: (status: TTSLiveStatus) => void;
 }): SpeechSessionController {
   stopAnyActiveAudio();
   if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
@@ -1843,9 +1848,14 @@ export function speakWithPremiumVoice({
   let isCancelled = false;
   let fallbackSession: SpeechSessionController | null = null;
   const abortController = new AbortController();
+  let clientTimeoutTimer: ReturnType<typeof setTimeout> | null = null;
 
   const cancel = () => {
     isCancelled = true;
+    if (clientTimeoutTimer) {
+      clearTimeout(clientTimeoutTimer);
+      clientTimeoutTimer = null;
+    }
     abortController.abort();
     stopAnyActiveAudio();
     if (fallbackSession) {
@@ -1856,17 +1866,31 @@ export function speakWithPremiumVoice({
 
   (async () => {
     try {
+      // 10000ms safety timer on client fetch (allows natural complete answers from Gemini)
+      clientTimeoutTimer = setTimeout(() => {
+        if (!isCancelled) {
+          console.warn('[TTS] Client request timeout reached (10s); aborting fetch to trigger fallback');
+          abortController.abort();
+        }
+      }, 10000);
+
       const res = await fetch('/api/tts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           text: cleaned,
           voiceId,
+          provider,
           emotion,
           detectedLanguage,
         }),
         signal: abortController.signal,
       });
+
+      if (clientTimeoutTimer) {
+        clearTimeout(clientTimeoutTimer);
+        clientTimeoutTimer = null;
+      }
 
       if (!res.ok) {
         throw new Error(`TTS server HTTP ${res.status}`);
@@ -1885,6 +1909,15 @@ export function speakWithPremiumVoice({
         }
         const blob = new Blob([bytes], { type: data.mimeType || 'audio/wav' });
         const audioUrl = URL.createObjectURL(blob);
+
+        onStatusChange?.({
+          state: 'premium-ready',
+          label: 'Premium Ready',
+          details: `Live studio synthesis active (${data.provider || 'gemini'} - ${data.voiceId || voiceId})`,
+          provider: data.provider || 'gemini',
+          voiceId: data.voiceId || voiceId,
+          lastChecked: Date.now(),
+        });
 
         const audio = new Audio(audioUrl);
         activeAudioElement = audio;
@@ -1927,8 +1960,37 @@ export function speakWithPremiumVoice({
 
         await audio.play();
       } else {
-        // Fallback flag returned by server (e.g. rate limit or browser selected)
+        // Fallback flag returned by server (e.g. rate limit, missing key, or browser selected)
         console.log('[TTS] Server suggested fallback to browser engine:', data.reason || data.error);
+        if (data.isQuotaExceeded) {
+          onStatusChange?.({
+            state: 'browser-fallback',
+            label: 'Browser Fallback (Quota 429)',
+            details: 'Gemini daily free-tier limit reached (HTTP 429) — temporarily using device browser voice',
+            provider: 'browser',
+            voiceId,
+            lastChecked: Date.now(),
+          });
+        } else if (data.error?.includes('GOOGLE_CLOUD_TTS_API_KEY') || data.error?.includes('not configured')) {
+          onStatusChange?.({
+            state: 'config-required',
+            label: 'Configuration Required',
+            details: data.error || 'Google Cloud Chirp 3 HD requires GOOGLE_CLOUD_TTS_API_KEY on the server',
+            provider: data.provider || 'google-cloud',
+            voiceId,
+            lastChecked: Date.now(),
+          });
+        } else {
+          onStatusChange?.({
+            state: 'browser-fallback',
+            label: 'Browser Fallback Active',
+            details: data.reason || data.error || 'Using local browser voice',
+            provider: 'browser',
+            voiceId,
+            lastChecked: Date.now(),
+          });
+        }
+
         if (isCancelled) return;
         fallbackSession = speakEmotionally({
           text,
@@ -1942,8 +2004,19 @@ export function speakWithPremiumVoice({
         });
       }
     } catch (err: any) {
-      if (err.name === 'AbortError' || isCancelled) return;
-      console.warn('[TTS] Network error or timeout, falling back to browser voice:', err?.message);
+      if (isCancelled) return;
+      const isAbort = err?.name === 'AbortError';
+      console.warn('[TTS] Network notice or timeout, falling back to browser voice:', err?.message || err);
+      onStatusChange?.({
+        state: 'browser-fallback',
+        label: isAbort ? 'Browser Fallback (Timeout)' : 'Browser Fallback Active',
+        details: isAbort
+          ? 'Studio speech generation timed out (>10s) — safely using device browser voice'
+          : (err?.message || 'Network error falling back to browser voice'),
+        provider: 'browser',
+        voiceId,
+        lastChecked: Date.now(),
+      });
       if (isCancelled) return;
       fallbackSession = speakEmotionally({
         text,
@@ -1959,5 +2032,31 @@ export function speakWithPremiumVoice({
   })();
 
   return { cancel };
+}
+
+/**
+ * Queries server /api/tts/status to inspect live TTS health and credential state
+ */
+export async function fetchTTSStatus(): Promise<TTSLiveStatus> {
+  try {
+    const res = await fetch('/api/tts/status');
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    return {
+      state: data.statusState || 'premium-ready',
+      label: data.statusLabel || 'Premium Ready',
+      details: data.statusMessage || '',
+      provider: data.activeProvider,
+      voiceId: data.defaultVoiceId,
+      lastChecked: Date.now(),
+    };
+  } catch (err: any) {
+    return {
+      state: 'browser-fallback',
+      label: 'Browser Voice Active',
+      details: 'Using local device voice',
+      lastChecked: Date.now(),
+    };
+  }
 }
 

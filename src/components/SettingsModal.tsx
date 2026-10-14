@@ -1,5 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import type { TiaSettings, SpeechVoiceOption, OwnerProfile, UserProfile, TiaLocalProfile } from '../types';
+import type {
+  TiaSettings,
+  SpeechVoiceOption,
+  OwnerProfile,
+  UserProfile,
+  TiaLocalProfile,
+  TTSLiveStatus,
+} from '../types';
 import {
   X,
   Volume2,
@@ -26,6 +33,8 @@ import {
   ShieldCheck,
   Heart,
   Square,
+  CheckCircle,
+  AlertTriangle,
 } from 'lucide-react';
 
 const TEST_SAMPLE_SENTENCES = [
@@ -80,6 +89,7 @@ interface SettingsModalProps {
   onDeleteMemory?: (id: string) => void;
   onResetProfile?: () => void;
   onAskTia?: (prompt: string) => void;
+  ttsLiveStatus?: TTSLiveStatus | null;
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
@@ -101,6 +111,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onDeleteMemory,
   onResetProfile,
   onAskTia,
+  ttsLiveStatus,
 }) => {
   const [showAbout, setShowAbout] = useState(false);
   const [clearedConfirm, setClearedConfirm] = useState(false);
@@ -787,7 +798,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             <div className="grid grid-cols-2 gap-2 p-1 rounded-xl bg-slate-900/60 border border-white/5">
               <button
                 type="button"
-                onClick={() => onUpdateSettings({ ttsEngine: 'browser' })}
+                onClick={() => onUpdateSettings({ ttsEngine: 'browser', ttsProvider: 'browser' })}
                 className={`py-2 px-3 rounded-lg text-xs font-medium flex items-center justify-center space-x-1.5 transition-all ${
                   settings.ttsEngine !== 'premium'
                     ? 'bg-rose-500 text-white shadow-md'
@@ -800,7 +811,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
               <button
                 type="button"
-                onClick={() => onUpdateSettings({ ttsEngine: 'premium' })}
+                onClick={() =>
+                  onUpdateSettings({
+                    ttsEngine: 'premium',
+                    ttsProvider: settings.premiumVoiceId?.includes('Chirp') ? 'google-cloud' : 'gemini',
+                  })
+                }
                 className={`py-2 px-3 rounded-lg text-xs font-medium flex items-center justify-center space-x-1.5 transition-all ${
                   settings.ttsEngine === 'premium'
                     ? 'bg-rose-500 text-white shadow-md'
@@ -819,14 +835,42 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   <label className="text-xs font-medium text-slate-300">
                     Studio Voice Persona
                   </label>
-                  <span className="text-[10px] text-emerald-400 font-medium">
-                    Auto Fallback to Browser Active
-                  </span>
+                  {ttsLiveStatus?.state === 'premium-ready' && (
+                    <span className="text-[10px] text-emerald-400 font-medium flex items-center space-x-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                      <span>Premium Ready (Live)</span>
+                    </span>
+                  )}
+                  {ttsLiveStatus?.state === 'browser-fallback' && (
+                    <span className="text-[10px] text-amber-400 font-medium flex items-center space-x-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+                      <span>Browser Fallback (Quota 429)</span>
+                    </span>
+                  )}
+                  {ttsLiveStatus?.state === 'config-required' && (
+                    <span className="text-[10px] text-rose-400 font-medium flex items-center space-x-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-rose-400" />
+                      <span>Configuration Required</span>
+                    </span>
+                  )}
+                  {!ttsLiveStatus && (
+                    <span className="text-[10px] text-emerald-400 font-medium flex items-center space-x-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                      <span>Auto Fallback Active</span>
+                    </span>
+                  )}
                 </div>
+
                 <div className="grid grid-cols-2 gap-2">
                   <button
                     type="button"
-                    onClick={() => onUpdateSettings({ premiumVoiceId: 'Aoede' })}
+                    onClick={() =>
+                      onUpdateSettings({
+                        premiumVoiceId: 'Aoede',
+                        ttsEngine: 'premium',
+                        ttsProvider: 'gemini',
+                      })
+                    }
                     className={`p-2.5 rounded-xl border text-left transition-all ${
                       (settings.premiumVoiceId || 'Aoede') === 'Aoede'
                         ? 'border-rose-500 bg-rose-500/10 text-white'
@@ -834,7 +878,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     }`}
                   >
                     <div className="font-semibold text-xs text-rose-300 flex items-center justify-between">
-                      <span>Aoede</span>
+                      <span>Aoede (Gemini)</span>
                       <span className="text-[10px] bg-rose-500/20 px-1 rounded text-rose-300">Recommended</span>
                     </div>
                     <p className="text-[11px] text-slate-400 mt-0.5">
@@ -844,7 +888,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
                   <button
                     type="button"
-                    onClick={() => onUpdateSettings({ premiumVoiceId: 'Kore' })}
+                    onClick={() =>
+                      onUpdateSettings({
+                        premiumVoiceId: 'Kore',
+                        ttsEngine: 'premium',
+                        ttsProvider: 'gemini',
+                      })
+                    }
                     className={`p-2.5 rounded-xl border text-left transition-all ${
                       settings.premiumVoiceId === 'Kore'
                         ? 'border-rose-500 bg-rose-500/10 text-white'
@@ -852,7 +902,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     }`}
                   >
                     <div className="font-semibold text-xs text-rose-300 flex items-center justify-between">
-                      <span>Kore</span>
+                      <span>Kore (Gemini)</span>
                       <span className="text-[10px] bg-indigo-500/20 px-1 rounded text-indigo-300">Articulate</span>
                     </div>
                     <p className="text-[11px] text-slate-400 mt-0.5">
@@ -861,12 +911,67 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   </button>
                 </div>
 
-                <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-[11px] text-amber-300 flex items-start space-x-2">
-                  <Info className="w-4 h-4 shrink-0 mt-0.5 text-amber-400" />
-                  <p>
-                    <span className="font-semibold">Safe Failover Guarantee:</span> If rate limits (free tier 10 RPD / 3 RPM) or network timeouts happen, Tia automatically continues speaking via device browser voice with zero delay!
+                {/* Google Cloud Chirp 3 HD Option */}
+                <button
+                  type="button"
+                  onClick={() =>
+                    onUpdateSettings({
+                      premiumVoiceId: 'hi-IN-Chirp3-HD-Aoede',
+                      ttsEngine: 'premium',
+                      ttsProvider: 'google-cloud',
+                    })
+                  }
+                  className={`w-full p-2.5 rounded-xl border text-left transition-all ${
+                    settings.premiumVoiceId?.includes('Chirp')
+                      ? 'border-cyan-500 bg-cyan-500/10 text-white'
+                      : 'border-white/5 bg-slate-800/60 text-slate-400 hover:border-white/10'
+                  }`}
+                >
+                  <div className="font-semibold text-xs text-cyan-300 flex items-center justify-between">
+                    <span>Google Cloud Chirp 3 HD (Hindi)</span>
+                    <span className="text-[10px] bg-cyan-500/20 px-1.5 py-0.5 rounded text-cyan-300">Cloud API</span>
+                  </div>
+                  <p className="text-[11px] text-slate-400 mt-0.5">
+                    Studio-grade Chirp 3 HD voice. Requires GOOGLE_CLOUD_TTS_API_KEY in server environment.
                   </p>
-                </div>
+                </button>
+
+                {/* Truthful Status Banner */}
+                {ttsLiveStatus?.state === 'premium-ready' && (
+                  <div className="p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-[11px] text-emerald-300 flex items-start space-x-2">
+                    <CheckCircle className="w-4 h-4 shrink-0 mt-0.5 text-emerald-400" />
+                    <p>
+                      <span className="font-semibold">Premium Ready:</span> Live studio voice synthesis is active. Normal Tia responses are generated using cloud AI speech ({settings.premiumVoiceId || 'Aoede'}).
+                    </p>
+                  </div>
+                )}
+
+                {ttsLiveStatus?.state === 'browser-fallback' && (
+                  <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-[11px] text-amber-300 flex items-start space-x-2">
+                    <Info className="w-4 h-4 shrink-0 mt-0.5 text-amber-400" />
+                    <p>
+                      <span className="font-semibold">{ttsLiveStatus.label || 'Browser Fallback'}:</span> {ttsLiveStatus.details || 'Gemini daily free-tier quota (10 requests/day) is temporarily reached (HTTP 429). Tia is speaking safely with device browser voice until quota resets.'}
+                    </p>
+                  </div>
+                )}
+
+                {ttsLiveStatus?.state === 'config-required' && (
+                  <div className="p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/20 text-[11px] text-rose-300 flex items-start space-x-2">
+                    <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-rose-400" />
+                    <p>
+                      <span className="font-semibold">Configuration Required:</span> {ttsLiveStatus.details || 'Google Cloud Chirp 3 HD requires GOOGLE_CLOUD_TTS_API_KEY on the server. Tia will speak via browser voice until configured.'}
+                    </p>
+                  </div>
+                )}
+
+                {!ttsLiveStatus && (
+                  <div className="p-2.5 rounded-xl bg-slate-900/60 border border-white/5 text-[11px] text-slate-300 flex items-start space-x-2">
+                    <Info className="w-4 h-4 shrink-0 mt-0.5 text-slate-400" />
+                    <p>
+                      <span className="font-semibold">Safe Failover Guarantee:</span> If rate limits or timeouts happen, Tia automatically continues speaking via device browser voice with zero delay.
+                    </p>
+                  </div>
+                )}
               </div>
             ) : (
               <p className="text-[11px] text-slate-400">
@@ -877,10 +982,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             {/* Pronunciation & Voice Evaluation Benchmark Test Suite */}
             <div className="pt-2.5 border-t border-white/5 space-y-2">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold text-slate-300">
-                  Evaluation Sentences (Pronunciation Tests)
-                </span>
-                <span className="text-[10px] text-slate-400">
+                <div>
+                  <span className="text-xs font-semibold text-slate-300">
+                    Benchmark Reference Audio (Pre-rendered)
+                  </span>
+                  <p className="text-[10px] text-slate-400">
+                    Pre-rendered studio recordings illustrating pronunciation quality (does not call live API)
+                  </p>
+                </div>
+                <span className="text-[10px] text-slate-400 shrink-0">
                   Click to listen
                 </span>
               </div>

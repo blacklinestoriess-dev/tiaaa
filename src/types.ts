@@ -72,7 +72,19 @@ export interface TiaSettings {
   wakeChimeEnabled: boolean;
   // Voice engine & premium voice selection
   ttsEngine?: 'browser' | 'premium';
+  ttsProvider?: 'browser' | 'gemini' | 'google-cloud' | 'auto';
   premiumVoiceId?: string;
+}
+
+export type TTSStatusState = 'premium-ready' | 'browser-fallback' | 'config-required';
+
+export interface TTSLiveStatus {
+  state: TTSStatusState;
+  label: string;
+  details: string;
+  provider?: 'browser' | 'gemini' | 'google-cloud' | 'auto';
+  voiceId?: string;
+  lastChecked?: number;
 }
 
 export interface SpeechVoiceOption {
